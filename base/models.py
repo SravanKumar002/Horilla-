@@ -10,6 +10,7 @@ from typing import Iterable
 
 import django
 from django.apps import apps
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import AbstractUser, User
 from django.core.exceptions import ValidationError
@@ -70,6 +71,15 @@ class Company(HorillaModel):
     Company model
     """
 
+    parent_company = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subcompanies",
+        verbose_name=_("Parent Company"),
+    )
+
     company = models.CharField(max_length=50, verbose_name=_("Name"))
     hq = models.BooleanField(default=False)
     address = models.TextField(max_length=255)
@@ -89,14 +99,110 @@ class Company(HorillaModel):
         """
         Meta class to add additional options
         """
-
         verbose_name = _("Company")
         verbose_name_plural = _("Companies")
         unique_together = ["company", "address"]
         app_label = "base"
+        # Custom permissions for managing sub-companies separately
+        permissions = [
+            ("view_subcompany", "Can view subcompany"),
+            ("add_subcompany", "Can add subcompany"),
+            ("change_subcompany", "Can change subcompany"),
+            ("delete_subcompany", "Can delete subcompany"),
+        ]
 
     def __str__(self) -> str:
+        # Show company hierarchy in string representation
+        if self.parent_company:
+            return f"{self.company} ({self.parent_company.company})"
         return str(self.company)
+
+    @classmethod
+    def get_companies_for_user(cls, user):
+        """
+        Return the company queryset for the current user.
+        
+        - Global superusers/admins (no company assigned): See ALL companies
+        - SuperUsers (users assigned to a company): ONLY see their own company 
+          and its descendants (sub-companies). They should NOT see any other 
+          root-level companies or unrelated companies.
+        - Regular users: ONLY see their own company and its descendants (if any).
+          They should NOT see any other root-level companies or unrelated companies.
+        """
+        employee = getattr(user, "employee_get", None)
+        if employee:
+            user_company = employee.get_company()
+        else:
+            user_company = getattr(user, "company", None)
+
+        if not user_company:
+            # Only fall back to full access if this is a platform admin that
+            # has no company assigned at all.
+            if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+                return cls.objects.all()
+            return cls.objects.none()
+
+        # Get the user's company ID
+        user_company_id = user_company.id
+        
+        # Get all descendant company IDs (sub-companies)
+        descendant_ids = cls._get_descendant_company_ids(user_company_id)
+        
+        # Only return the user's company and its descendants
+        # This ensures users from Company A never see Company B or any other unrelated company
+        company_ids = [user_company_id] + descendant_ids
+        
+        # Use distinct() to avoid duplicates and ensure clean queryset
+        return cls.objects.filter(id__in=company_ids).distinct()
+
+    @classmethod
+    def _get_descendant_company_ids(cls, root_company_id):
+        """Return ids for every descendant company below the provided company."""
+        descendant_ids = []
+        queue = [root_company_id]
+
+        while queue:
+            child_ids = list(
+                cls.objects.filter(parent_company_id__in=queue).values_list(
+                    "id", flat=True
+                )
+            )
+            if not child_ids:
+                break
+            descendant_ids.extend(child_ids)
+            queue = child_ids
+
+        return descendant_ids
+
+
+class CompanyAccessControl(HorillaModel):
+    """
+    Optional per-user override for company visibility.
+
+    If a record exists for a user:
+    - The companies listed here (and all their descendants) become that user's
+      visible scope, regardless of superuser / hierarchy rules.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="company_access_rules",
+        verbose_name=_("User"),
+    )
+    companies = models.ManyToManyField(
+        Company,
+        related_name="visibility_overrides",
+        verbose_name=_("Companies"),
+    )
+
+    class Meta:
+        verbose_name = _("Company Access Control")
+        verbose_name_plural = _("Company Access Controls")
+
+    def __str__(self) -> str:
+        return f"{self.user} → {self.companies.count()} companies"
+
 
 
 class Department(HorillaModel):

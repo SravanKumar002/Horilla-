@@ -55,9 +55,38 @@ def strtime_seconds(time):
     args:
         time : time in H:M format
     """
-
-    ftr = [3600, 60, 1]
-    return sum(a * b for a, b in zip(ftr, map(int, time.split(":"))))
+    # Handle None, empty string, or invalid formats
+    if not time or time is None:
+        return 0
+    
+    # Convert to string and strip whitespace
+    time_str = str(time).strip()
+    
+    # If empty after stripping, return 0
+    if not time_str:
+        return 0
+    
+    # Handle invalid formats - if it doesn't contain ":", treat as 0
+    if ":" not in time_str:
+        try:
+            # Try to parse as a number (e.g., "0.00" -> 0)
+            return int(float(time_str)) * 3600
+        except (ValueError, TypeError):
+            return 0
+    
+    # Split by ":" and validate format
+    parts = time_str.split(":")
+    if len(parts) < 2:
+        return 0
+    
+    try:
+        ftr = [3600, 60, 1]
+        # Only use first 2 parts (hours and minutes), ignore seconds if present
+        hours = int(float(parts[0])) if parts[0] else 0
+        minutes = int(float(parts[1])) if len(parts) > 1 and parts[1] else 0
+        return hours * 3600 + minutes * 60
+    except (ValueError, TypeError):
+        return 0
 
 
 def get_diff_obj(first_instance, other_instance, exclude_fields=None):
@@ -178,6 +207,11 @@ def shift_schedule_today(day, shift):
         shift   : shift instance
         day     : shift day object
     """
+    # `day` can be NULL in some attendance rows (or not resolved due to bad data),
+    # so guard to avoid crashing clock-in/clock-out flows.
+    if day is None or shift is None:
+        return ("00:00", 0, 0)
+
     schedule_today = day.day_schedule.filter(shift_id=shift)
     start_time_sec, end_time_sec, minimum_hour = 0, 0, "00:00"
     if schedule_today.exists():
@@ -592,3 +626,87 @@ def sort_activity_dicts(activity_dicts):
     ]
     sorted_activity_dicts = sorted(activity_dicts, key=lambda x: x["Attendance Date"])
     return sorted_activity_dicts
+
+
+def get_attendance_status(
+    work_hours,
+    min_halfday_hours=4,
+    min_fullday_hours=8,
+    is_weekly_off=False,
+    is_leave=False,
+    is_public_holiday=False,
+    clock_in=None,
+    clock_out=None
+):
+    """
+    Determine attendance status based on all conditions.
+    
+    Args:
+        work_hours: Work hours as float (e.g., 8.5 for 8 hours 30 minutes) or "HH:MM" string
+        min_halfday_hours: Minimum hours for half day (default: 4)
+        min_fullday_hours: Minimum hours for full day (default: 8)
+        is_weekly_off: Boolean indicating if it's a weekly off day
+        is_leave: Boolean indicating if it's a leave day
+        is_public_holiday: Boolean indicating if it's a public holiday
+        clock_in: Clock in time (datetime.time or None)
+        clock_out: Clock out time (datetime.time or None)
+    
+    Returns:
+        str: Attendance status string
+    """
+    work_hours = duration_to_hours(work_hours)
+    
+    # 1. Public Holiday
+    if is_public_holiday:
+        return "Public Holiday"
+    
+    # 2. Leave
+    if is_leave:
+        return "Leave"
+    
+    # 3. Weekly Off
+    if is_weekly_off:
+        return "Weekly Off"
+    
+    # 4. No Clock In/Out
+    if clock_in is None or clock_out is None:
+        return "Absent (No Clock In/Out)"
+    
+    # 5. Full Day
+    if work_hours >= min_fullday_hours:
+        return "Present"
+    
+    # 6. Half Day
+    if min_halfday_hours <= work_hours < min_fullday_hours:
+        return "Half Day"
+    
+    # 7. Less than Half Day
+    if work_hours < min_halfday_hours:
+        return "Absent (Work hours < minimum half-day hours)"
+    
+    return "Unknown"
+
+
+def duration_to_hours(value):
+    """
+    Convert a duration value (HH:MM, HH:MM:SS, seconds, float hours) to float hours.
+    """
+    if value is None:
+        return 0.0
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        try:
+            parts = value.split(":")
+            if len(parts) >= 2:
+                hours = float(parts[0])
+                minutes = float(parts[1])
+                seconds = float(parts[2]) if len(parts) == 3 else 0.0
+                return hours + (minutes / 60.0) + (seconds / 3600.0)
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+
+    return 0.0

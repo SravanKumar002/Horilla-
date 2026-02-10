@@ -12,6 +12,7 @@ import attendance.views.dashboard
 import attendance.views.geofaceconfig
 import attendance.views.penalty
 import attendance.views.requests
+import attendance.views.calendar
 import attendance.views.search
 import base
 from base.forms import AttendanceAllowedIPForm
@@ -140,6 +141,16 @@ urlpatterns = [
         "own-attendance-filter",
         attendance.views.search.own_attendance_sort,
         name="own-attendance-filter",
+    ),
+    path(
+        "own-attendance-export-excel",
+        attendance.views.search.own_attendance_export_excel,
+        name="own-attendance-export-excel",
+    ),
+    path(
+        "own-attendance-month/",
+        attendance.views.calendar.own_attendance_month,
+        name="own-attendance-month",
     ),
     path("clock-in", attendance.views.clock_in_out.clock_in, name="clock-in"),
     path("clock-out", attendance.views.clock_in_out.clock_out, name="clock-out"),
@@ -310,6 +321,11 @@ urlpatterns = [
         "request-new-attendance",
         attendance.views.requests.request_new,
         name="request-new-attendance",
+    ),
+    path(
+        "regularise-attendance-direct/<int:attendance_id>/",
+        attendance.views.requests.regularise_attendance_direct,
+        name="regularise-attendance-direct",
     ),
     path(
         "create-batch-attendance",
@@ -533,4 +549,6 @@ urlpatterns = [
         attendance.views.geofaceconfig.geofaceconfig,
         name="geo-face-config",
     ),
+
+
 ]

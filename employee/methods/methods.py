@@ -51,7 +51,10 @@ error_data_template = {
         "Date Joining",
         "Contract End Date",
         "Basic Salary",
-        "Salary Hour",
+        "Salary Per Hour",
+        "Housing Allowance", # NEW: Added to template for completeness
+        "Transport Allowance", # NEW: Added to template for completeness
+        "Other Allowance", # NEW: Added to template for completeness
         "Email Error",
         "First Name Error",
         "Name and Email Error",
@@ -61,9 +64,10 @@ error_data_template = {
         "Contract Date Error",
         "Badge ID Error",
         "Basic Salary Error",
-        "Salary Hour Error",
+        "Salary Per Hour Error",
         "User ID Error",
         "Company Error",
+        "Reporting Manager Error",
     ]
 }
 
@@ -129,11 +133,28 @@ def convert_nan(field, dicts):
     This method is returns None or field value
     """
     field_value = dicts.get(field)
-    try:
-        float(field_value)
+    if pd.isna(field_value): # Use pd.isna for robustness
         return None
-    except ValueError:
-        return field_value
+    
+    try:
+        # Check if the field value is a float representation of NaN
+        if pd.isna(float(field_value)):
+             return None
+    except (ValueError, TypeError):
+        pass # Not a simple float, return the value as is
+        
+    return field_value
+
+
+# 💡 NEW FUNCTION: ADDED FOR ROBUST NUMERIC PARSING
+def safe_numeric_conversion(field_name, data):
+    """
+    Safely retrieves numeric data, handling None/NaN/non-numeric values from Excel import.
+    """
+    value = convert_nan(field_name, data)
+    
+    # CRITICAL FIX: Check if the value is an int OR a float, otherwise default to 0.0
+    return value if isinstance(value, (int, float)) else 0.0
 
 
 def dynamic_prefix_sort(item):
@@ -238,7 +259,11 @@ def valid_import_file_headers(data_frame):
         "Date Joining",
         "Contract End Date",
         "Basic Salary",
-        "Salary Hour",
+        "Salary Per Hour",
+        # 💡 NEW: Required headers added for new fields
+        "Housing Allowance",
+        "Transport Allowance",
+        "Other Allowance",
     ]
 
     missing_keys = [key for key in required_keys if key not in data_frame.columns]
@@ -255,15 +280,39 @@ def process_employee_records(data_frame):
     email_regex = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
     phone_regex = re.compile(r"^\+?\d{10,15}$")
     allowed_genders = frozenset(choice[0] for choice in Employee.choice_gender)
-    existing_badge_ids = frozenset(Employee.objects.values_list("badge_id", flat=True))
-    existing_usernames = frozenset(User.objects.values_list("username", flat=True))
+    # Only check active employees to allow re-importing deleted employees
+    existing_badge_ids = frozenset(Employee.objects.filter(is_active=True).values_list("badge_id", flat=True))
+    # Only check active users to allow re-importing deleted employees
+    existing_usernames = frozenset(User.objects.filter(is_active=True).values_list("username", flat=True))
     existing_name_emails = frozenset(
         (fname, lname, email)
-        for fname, lname, email in Employee.objects.values_list(
+        for fname, lname, email in Employee.objects.filter(is_active=True).values_list(
             "employee_first_name", "employee_last_name", "email"
         )
     )
     existing_companies = frozenset(Company.objects.values_list("company", flat=True))
+    
+    # Build a lookup dictionary for reporting managers with their company information
+    # Format: {"First Last": {"employee": Employee, "company": "Company Name"}}
+    reporting_manager_company_lookup = {}
+    active_employees = Employee.objects.filter(is_active=True).select_related('employee_work_info__company_id')
+    for emp in active_employees:
+        first_name = emp.employee_first_name or ""
+        last_name = emp.employee_last_name or ""
+        if first_name and last_name:
+            full_name = f"{first_name} {last_name}".strip()
+            company_name = None
+            if hasattr(emp, 'employee_work_info') and emp.employee_work_info and emp.employee_work_info.company_id:
+                company_name = emp.employee_work_info.company_id.company
+            reporting_manager_company_lookup[full_name] = {
+                "employee": emp,
+                "company": company_name
+            }
+            # Also add case-insensitive variants
+            reporting_manager_company_lookup[full_name.lower()] = {
+                "employee": emp,
+                "company": company_name
+            }
     success_list, error_list = [], []
     employee_dicts = data_frame.to_dict("records")
 
@@ -286,8 +335,8 @@ def process_employee_records(data_frame):
         last_name = convert_nan("Last Name", emp)
         gender = str(emp.get("Gender") or "").strip().lower()
         company = convert_nan("Company", emp)
-        basic_salary = convert_nan("Basic Salary", emp)
-        salary_hour = convert_nan("Salary Hour", emp)
+        basic_salary = convert_nan("Basic Salary", emp) # NOTE: This only checks for NaN, actual numeric validation is below
+        salary_hour = convert_nan("Salary Per Hour", emp)
 
         # Date validation
         joining_date = import_valid_date(
@@ -363,7 +412,37 @@ def process_employee_records(data_frame):
             errors["Company Error"] = f"Company '{company}' does not exist."
             save = False
 
+        # Reporting Manager validation - check if manager belongs to same company
+        reporting_manager = convert_nan("Reporting Manager", emp)
+        if reporting_manager and company:
+            reporting_manager = str(reporting_manager).strip()
+            if reporting_manager and reporting_manager.lower() not in ['none', 'null', 'nan', '']:
+                # Try to find reporting manager in lookup
+                manager_info = None
+                if reporting_manager in reporting_manager_company_lookup:
+                    manager_info = reporting_manager_company_lookup[reporting_manager]
+                elif reporting_manager.lower() in reporting_manager_company_lookup:
+                    manager_info = reporting_manager_company_lookup[reporting_manager.lower()]
+                
+                if manager_info:
+                    manager_company = manager_info["company"]
+                    # Check if manager belongs to the same company as employee
+                    if manager_company and company != manager_company:
+                        errors["Reporting Manager Error"] = (
+                            f"Reporting Manager '{reporting_manager}' belongs to company '{manager_company}' "
+                            f"but employee is assigned to company '{company}'. "
+                            f"Reporting Manager must belong to the same company as the employee."
+                        )
+                        save = False
+                else:
+                    # Reporting manager not found - this will be handled in bulk_create_work_info_import
+                    # but we can add a warning here
+                    pass
+
         # Salary validation
+        # NOTE: This validation logic should be moved or adapted to use safe_numeric_conversion
+        # For simplicity, we keep the original validation structure here, 
+        # but rely on safe_numeric_conversion later for assignment.
         if basic_salary not in [None, ""]:
             try:
                 basic_salary_val = float(basic_salary)
@@ -379,8 +458,8 @@ def process_employee_records(data_frame):
                 if salary_hour_val < 0:
                     raise ValueError
             except (ValueError, TypeError):
-                errors["Salary Hour Error"] = (
-                    "Salary hour must be a non-negative number."
+                errors["Salary Per Hour Error"] = (
+                    "Salary per hour must be a non-negative number."
                 )
                 save = False
 
@@ -389,6 +468,8 @@ def process_employee_records(data_frame):
             emp["Phone"] = phone
             emp["Date Joining"] = joining_date
             emp["Contract End Date"] = contract_end_date
+            # The next function (bulk_create_work_info_import) will read all the values from emp, 
+            # including the new allowance fields, so no need to explicitly add them here.
             success_list.append(emp)
             created_count += 1
         else:
@@ -406,12 +487,13 @@ def bulk_create_user_import(success_lists):
         list: A list of created User instances. If no new users are created, returns an empty list.
     """
     emails = [row["Email"] for row in success_lists]
+    # Only check active users to allow re-creating users for deleted employees
     existing_usernames = (
-        set(User.objects.filter(username__in=emails).values_list("username", flat=True))
+        set(User.objects.filter(is_active=True, username__in=emails).values_list("username", flat=True))
         if is_postgres
         else set(
             chain.from_iterable(
-                User.objects.filter(username__in=chunk).values_list(
+                User.objects.filter(is_active=True, username__in=chunk).values_list(
                     "username", flat=True
                 )
                 for chunk in chunked(emails, 999)
@@ -507,12 +589,31 @@ def optimize_reporting_manager_lookup():
     single database query, and creates a dictionary for quick lookups based
     on the full name of the reporting managers.
     """
-    employees = Employee.objects.entire()
+    # Only include active employees for reporting manager lookup
+    employees = Employee.objects.entire().filter(is_active=True)
 
-    employee_dict = {
-        f"{employee.employee_first_name} {employee.employee_last_name}": employee
-        for employee in employees
-    }
+    employee_dict = {}
+    for employee in employees:
+        first_name = employee.employee_first_name or ""
+        last_name = employee.employee_last_name or ""
+        
+        # Create lookup with full name (First Last) - this is the primary lookup
+        if first_name and last_name:
+            full_name = f"{first_name} {last_name}".strip()
+            employee_dict[full_name] = employee
+            # Also add "First Last" (case-insensitive variant)
+            employee_dict[full_name.lower()] = employee
+            employee_dict[full_name.upper()] = employee
+        
+        # If only first name exists, add that too
+        if first_name and not last_name:
+            employee_dict[first_name] = employee
+            employee_dict[first_name.lower()] = employee
+        
+        # If only last name exists (rare case)
+        if last_name and not first_name:
+            employee_dict[last_name] = employee
+    
     return employee_dict
 
 
@@ -559,28 +660,29 @@ def bulk_create_job_position_import(success_lists):
     department_objs = Department.objects.only("id", "department")
     department_lookup = {dep.department: dep for dep in department_objs}
 
-    # Step 3: Filter out entries with unknown departments
+    # Step 3: Filter out entries with unknown departments and keep Department instances
     valid_pairs = [
-        (jp, department_lookup[dept])
+        (jp, department_lookup[dept])  # Keep the Department instance, not just the ID
         for jp, dept in job_positions_to_import
         if dept in department_lookup
     ]
 
     if not valid_pairs:
-        return  # No valid (job_position, department_id) pairs to process
+        return  # No valid (job_position, department) pairs to process
 
-    # Step 4: Fetch existing job positions
+    # Step 4: Fetch existing job positions using department IDs
+    department_ids = {dept_obj.id for _, dept_obj in valid_pairs}
     existing_pairs = set(
         JobPosition.objects.filter(
-            department_id__in={dept_id for _, dept_id in valid_pairs}
+            department_id__in=department_ids
         ).values_list("job_position", "department_id")
     )
 
-    # Step 5: Create list of new JobPosition instances
+    # Step 5: Create list of new JobPosition instances using Department instances
     new_positions = [
-        JobPosition(job_position=jp, department_id=dept_id)
-        for jp, dept_id in valid_pairs
-        if (jp, dept_id) not in existing_pairs
+        JobPosition(job_position=jp, department_id=dept_obj)
+        for jp, dept_obj in valid_pairs
+        if (jp, dept_obj.id) not in existing_pairs
     ]
 
     # Step 6: Bulk create in a transaction
@@ -604,12 +706,12 @@ def bulk_create_job_role_import(success_lists):
     }
 
     # Prefetch existing data efficiently
-    job_positions = JobPosition.objects.only("id", "job_position")
+    job_positions = {jp.job_position: jp for jp in JobPosition.objects.only("id", "job_position")}
     existing_job_roles = set(JobRole.objects.values_list("job_role", "job_position_id"))
 
-    # Create new job roles
+    # Create new job roles using JobPosition instances
     new_job_roles = [
-        JobRole(job_role=role, job_position_id=job_positions[pos].id)
+        JobRole(job_role=role, job_position_id=job_positions[pos])
         for role, pos in job_roles_to_import
         if pos in job_positions
         and (role, job_positions[pos].id) not in existing_job_roles
@@ -847,11 +949,46 @@ def bulk_create_work_info_import(success_lists):
         work_type_obj = existing_work_types.get(work_info.get("Work Type"))
         employee_type_obj = existing_employee_types.get(work_info.get("Employee Type"))
         shift_obj = existing_shifts.get(work_info.get("Shift"))
-        reporting_manager = work_info.get("Reporting Manager")
+        
+        # Handle Reporting Manager - properly extract and lookup
         reporting_manager_obj = None
-        if isinstance(reporting_manager, str) and " " in reporting_manager:
-            if reporting_manager in reporting_manager_dict:
-                reporting_manager_obj = reporting_manager_dict[reporting_manager]
+        
+        # Use convert_nan to properly handle NaN/None values
+        reporting_manager = convert_nan("Reporting Manager", work_info)
+        
+        if reporting_manager:
+            # Convert to string and strip whitespace
+            reporting_manager = str(reporting_manager).strip()
+            
+            # Skip if empty or represents null values
+            if reporting_manager and reporting_manager.lower() not in ['none', 'null', 'nan', '']:
+                # Try to find in lookup dictionary (case-insensitive lookup)
+                # First try exact match
+                if reporting_manager in reporting_manager_dict:
+                    reporting_manager_obj = reporting_manager_dict[reporting_manager]
+                # Try case-insensitive match (lowercase)
+                elif reporting_manager.lower() in reporting_manager_dict:
+                    reporting_manager_obj = reporting_manager_dict[reporting_manager.lower()]
+                # Try uppercase
+                elif reporting_manager.upper() in reporting_manager_dict:
+                    reporting_manager_obj = reporting_manager_dict[reporting_manager.upper()]
+                # Try title case (First Last)
+                elif reporting_manager.title() in reporting_manager_dict:
+                    reporting_manager_obj = reporting_manager_dict[reporting_manager.title()]
+                else:
+                    # Try to match by splitting name into parts and checking
+                    name_parts = reporting_manager.split()
+                    if len(name_parts) >= 2:
+                        # Try with first and last name
+                        first_last = f"{name_parts[0]} {name_parts[-1]}"
+                        if first_last in reporting_manager_dict:
+                            reporting_manager_obj = reporting_manager_dict[first_last]
+                        elif first_last.lower() in reporting_manager_dict:
+                            reporting_manager_obj = reporting_manager_dict[first_last.lower()]
+                    
+                    # If still not found, log warning for debugging but don't fail the import
+                    if not reporting_manager_obj:
+                        logger.warning(f"Reporting Manager '{reporting_manager}' not found for employee {email} (Badge ID: {badge_id})")
 
         company_obj = existing_companies.get(work_info.get("Company"))
         location = work_info.get("Location")
@@ -868,16 +1005,16 @@ def bulk_create_work_info_import(success_lists):
             if not pd.isnull(work_info["Contract End Date"])
             else None
         )
-        basic_salary = (
-            convert_nan("Basic Salary", work_info)
-            if type(convert_nan("Basic Salary", work_info)) is int
-            else 0
-        )
-        salary_hour = (
-            convert_nan("Salary Hour", work_info)
-            if type(convert_nan("Salary Hour", work_info)) is int
-            else 0
-        )
+        
+        # 💥 CRITICAL FIX: Replaced old faulty logic with new safe_numeric_conversion
+        basic_salary = safe_numeric_conversion("Basic Salary", work_info)
+        salary_hour = safe_numeric_conversion("Salary Per Hour", work_info)
+        
+        # 💡 NEW: Use safe_numeric_conversion for allowance fields as well
+        housing_allowance = safe_numeric_conversion("Housing Allowance", work_info)
+        transport_allowance = safe_numeric_conversion("Transport Allowance", work_info)
+        other_allowance = safe_numeric_conversion("Other Allowance", work_info)
+        
 
         if employee_work_info is None:
             # Create a new instance
@@ -901,6 +1038,10 @@ def bulk_create_work_info_import(success_lists):
                 ),
                 basic_salary=basic_salary,
                 salary_hour=salary_hour,
+                # 💡 NEW: Add allowance fields for new record creation
+                housing_allowance=housing_allowance, 
+                transport_allowance=transport_allowance,
+                other_allowance=other_allowance,
             )
             new_work_info_list.append(employee_work_info)
         else:
@@ -923,11 +1064,19 @@ def bulk_create_work_info_import(success_lists):
             )
             employee_work_info.basic_salary = basic_salary
             employee_work_info.salary_hour = salary_hour
+            
+            # 💡 NEW: Add allowance fields for existing record update
+            employee_work_info.housing_allowance = housing_allowance
+            employee_work_info.transport_allowance = transport_allowance
+            employee_work_info.other_allowance = other_allowance
+            
             update_work_info_list.append(employee_work_info)
+            
     if new_work_info_list:
         EmployeeWorkInformation.objects.bulk_create(
             new_work_info_list, batch_size=None if is_postgres else 999
         )
+        
     if update_work_info_list:
         EmployeeWorkInformation.objects.bulk_update(
             update_work_info_list,
@@ -946,9 +1095,13 @@ def bulk_create_work_info_import(success_lists):
                 "contract_end_date",
                 "basic_salary",
                 "salary_hour",
+                "housing_allowance",
+                "transport_allowance",
+                "other_allowance",
             ],
             batch_size=None if is_postgres else 999,
         )
+        
     if apps.is_installed("payroll"):
 
         contract_creation_thread = threading.Thread(

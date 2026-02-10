@@ -1,0 +1,370 @@
+{% load i18n %}
+{% load attendancefilters %}
+{% include "filter_tags.html" %}
+
+<style>
+    .leave-table-container {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        overflow: hidden;
+        margin: 20px 0;
+    }
+    
+    .leave-table-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px 24px;
+        color: white;
+    }
+    
+    .leave-table-title {
+        font-size: 20px;
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .leave-legend {
+        display: flex;
+        gap: 24px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+    
+    .leave-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: rgba(255,255,255,0.95);
+    }
+    
+    .leave-legend-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+    }
+    
+    .modern-table-wrapper {
+        overflow-x: auto;
+        max-height: 420px;
+        
+    }
+    .modern-table-wrapper::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari, Opera */
+    }
+    .modern-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    
+    .modern-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #f8f9fa;
+    }
+    
+    .modern-table thead th {
+        /* padding: 16px 12px; */
+        text-align: center;
+        font-weight: 600;
+        font-size: 13px;
+        color: #495057;
+        border-bottom: 2px solid #e9ecef;
+        background: #f8f9fa;
+    }
+    
+    .modern-table thead th:first-child {
+        text-align: left;
+        position: sticky;
+        left: 0;
+        z-index: 11;
+        min-width: 180px;
+        white-space:nowrap;
+        box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+    }
+    
+    .modern-table thead th.holiday-header {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+    
+    .modern-table tbody tr {
+        transition: background-color 0.2s;
+    }
+    
+    .modern-table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .modern-table tbody td {
+        /* padding: 14px 12px; */
+        text-align: center;
+        border-bottom: 1px solid #e9ecef;
+        font-size: 14px;
+    }
+    
+    .modern-table tbody td:first-child {
+        text-align: left;
+        font-weight: 500;
+        position: sticky;
+        left: 0;
+        background: white;
+        z-index: 5;
+        white-space:nowrap;
+        box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+    }
+    
+    .modern-table tbody tr:hover td:first-child {
+        background: #f8f9fa;
+    }
+    
+    .employee-link {
+        color: #667eea;
+        text-decoration: none;
+        transition: color 0.2s;
+    }
+    
+    .employee-link:hover {
+        color: #764ba2;
+        text-decoration: underline;
+    }
+    
+    .day-cell {
+        position: relative;
+        min-width: 20px;
+        height: 20px;
+        padding:0px;
+    }
+    
+    .day-cell.holiday-bg {
+        background-color: #f0f7ff !important;
+    }
+    
+    .leave-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .leave-indicator:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .leave-type {
+        background: #ab88f8;
+        color: white;
+        cursor:pointer;
+    }
+    
+    .leave-type:hover {
+        background: #ab88f8;
+    }
+    
+    .modern-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        background: #f8f9fa;
+        border-top: 1px solid #e9ecef;
+        /* height:70px; */
+    }
+    
+    .pagination-info {
+        color: #6c757d;
+        font-size: 14px;
+    }
+    
+    .pagination-controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+    
+    .page-input-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .page-input {
+        width: 60px;
+        padding: 6px 10px;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        text-align: center;
+        font-size: 14px;
+    }
+    
+    .pagination-buttons {
+        display: flex;
+        gap: 6px;
+    }
+    
+    .page-btn {
+        padding: 8px 16px;
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        color: #495057;
+        text-decoration: none;
+        font-size: 14px;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+    
+    .page-btn:hover {
+        background: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+</style>
+
+
+    
+    
+    <div class="modern-table-wrapper">
+        <table class="modern-table">
+            <thead>
+                <tr>
+                    <th>{% trans "Employee" %}</th>
+                    {% for day in current_month_dates_list %}
+                        <th class="day-cell">
+                            {{ day.day }}
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for employee, work_records in data %}
+                    <tr>
+                        <td>
+                            <a class="employee-link" href="{% url 'employee-view-individual' employee.id %}" id="employee-name">
+                                {{ employee }}
+                            </a>
+                        </td>
+
+                        {% for work_record in work_records %}
+                            {% with day=current_month_dates_list|get_item:forloop.counter0 %}
+                            <td class="day-cell {% if work_record and work_record.work_record_type == 'LFD' %}leave-type{% endif %} " {% if work_record.title_message %}
+            title="{{work_record.title_message}}"
+        {% endif %}
+        onclick="window.location.href = `{% url 'request-view' %}?employee_id={{work_record.employee_id.id}}&from_date={{work_record.date|date:'Y-m-d'}}&to_date={{work_record.date|date:'Y-m-d'}}`;">
+                                {% comment %}
+                                Only show leaves (L type)
+                                {% endcomment %}
+                                {% if work_record and work_record.work_record_type == 'LFD' %}
+    
+        
+        L
+    
+{% endif %}
+
+                            </td>
+                            {% endwith %}
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="modern-pagination">
+        <span class="pagination-info">
+            {% trans "Page" %} {{ data.number }} {% trans "of" %} {{ data.paginator.num_pages }}
+        </span>
+
+        <div class="pagination-controls">
+            <div class="page-input-group">
+                <span>{% trans "Page" %}</span>
+                <input
+                    type="number"
+                    name="page"
+                    class="page-input"
+                    value="{{data.number}}"
+                    hx-get="{% url 'leave-records-change-month' %}?{{pd}}"
+                    hx-target="#workRecordTable"
+                    min="1"
+                    max="{{data.paginator.num_pages}}"
+                />
+                <span>{% trans "of" %} {{data.paginator.num_pages}}</span>
+            </div>
+
+            <div class="pagination-buttons">
+                {% if data.has_previous %}
+                    <a
+                        hx-target="#workRecordTable"
+                        hx-get="{% url 'leave-records-change-month' %}?{{pd}}&page=1"
+                        class="page-btn"
+                    >{% trans "First" %}</a>
+                    <a
+                        hx-target="#workRecordTable"
+                        hx-get="{% url 'leave-records-change-month' %}?{{pd}}&page={{ data.previous_page_number }}"
+                        class="page-btn"
+                    >{% trans "Previous" %}</a>
+                {% endif %}
+
+                {% if data.has_next %}
+                    <a
+                        hx-target="#workRecordTable"
+                        hx-get="{% url 'leave-records-change-month' %}?{{pd}}&page={{ data.next_page_number }}"
+                        class="page-btn"
+                    >{% trans "Next" %}</a>
+                    <a
+                        hx-target="#workRecordTable"
+                        hx-get="{% url 'leave-records-change-month' %}?{{pd}}&page={{ data.paginator.num_pages }}"
+                        class="page-btn"
+                    >{% trans "Last" %}</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+<span data-hx-vals="{{pd}}"></span>
+
+<script>
+    $(document).ready(function () {
+        $(document).on("htmx:afterSettle", function () {
+            var hxVals = $("[data-hx-vals]").data("hx-vals");
+            var queryParams = {};
+            var pairs = hxVals.split("&");
+
+            pairs.forEach(function (pair) {
+                var [key, value] = pair.split("=");
+                if (key != "month") {
+                    queryParams[key] = value;
+                }
+            });
+
+            $("#monthYearField").attr("hx-vals", JSON.stringify(queryParams));
+        });
+    });
+</script>
+
+
+<script>
+  // Wait until the DOM is loaded
+  document.addEventListener("DOMContentLoaded", function() {
+    // Get the element
+    const employeeElement = document.getElementById("employee-name");
+    
+    if (employeeElement) {
+      // Get current text
+      let name = employeeElement.textContent;
+      // Remove anything inside parentheses including the parentheses
+      name = name.replace(/\s*\(.*?\)\s*/g, '');
+      // Update the text
+      employeeElement.textContent = name;
+    }
+  });
+</script>

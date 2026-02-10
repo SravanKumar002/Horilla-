@@ -12,19 +12,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <script>
-        var at_work_seconds = {{ request.user.employee_get.get_forecasted_at_work.forecasted_at_work_seconds }}
+        var at_work_seconds = {{ elapsed_seconds }}
+        console.log("click 1", at_work_seconds)
+        console.log("at_work_seconds in index.html", at_work_seconds)
+        sessionStorage.setItem('runInterval', { elapsed_seconds })
+ 
         var run = 0
     </script>
     <title class="time-runner stop-runner">{{white_label_company_name}}</title>
     <link rel="stylesheet" href="{% static 'build/css/driver.min.css' %}" />
     <meta name="theme-color" content="orangered">
     <link rel="manifest" href="{% static 'build/manifest.json' %}">
-    <link rel="apple-touch-icon" sizes="180x180"
-        href="{% if white_label_company.icon %}{{white_label_company.icon.url}} {% else %}{% static 'favicons/apple-touch-icon.png' %}{% endif %}">
-    <link rel="icon" type="image/png" sizes="32x32"
-        href="{% if white_label_company.icon %}{{white_label_company.icon.url}} {% else %}{% static 'favicons/favicon-32x32.png' %}{% endif %}">
-    <link rel="icon" type="image/png" sizes="16x16"
-        href="{% if white_label_company.icon %}{{white_label_company.icon.url}} {% else %}{% static 'favicons/favicon-16x16.png' %}{% endif %}">
+   <link rel="apple-touch-icon" sizes="180x180" 
+      href="{% if white_label_company.icon %}{{ white_label_company.icon.url }}{% else %}{% static 'images/ui/whiteBird' %}{% endif %}">
+
+<link rel="icon" type="image/png" sizes="32x32" 
+      href="{% if white_label_company.icon %}{{ white_label_company.icon.url }}{% else %}{% static 'images/ui/whiteBird.png' %}{% endif %}">
+
+<link rel="icon" type="image/png" sizes="18x18" 
+      href="{% if white_label_company.icon %}{{ white_label_company.icon.url }}{% else %}{% static 'images/ui/whiteBird.png' %}{% endif %}">
+
 
     <meta name="msapplication-TileColor" content="#da532c">
     <meta name="theme-color" content="#ffffff">
@@ -35,6 +42,7 @@
     <link rel="stylesheet" href="{% static 'build/css/orgChart.css' %}" />
     <link rel="stylesheet" href="{% static '/jquery/jqueryui.css' %}">
     <link rel="stylesheet" href="{% static 'build/css/pivottable.min.css' %}" />
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
     <script src="{% static '/jquery/ajax.js' %}"></script>
     <script src="{% static '/jquery/jquery.min.js' %}"></script>
     <script src="{% static '/jquery/jqueryui.js' %}"></script>
@@ -75,6 +83,118 @@
         </div>
     {% endif %}
     <button id="reloadMessagesButton" hx-get="{% url 'reload-messages' %}" hx-swap="afterend" hidden hx-target="#reloadMessages"></button>
+
+ <!-- Start of Nav bar -->
+            <nav class="oh-navbar" style="width: -webkit-fill-available;;">
+                <div class="oh-wrapper oh-navbar__wrapper">
+
+ <div class="oh-sidebar__company" style="padding: 14px; ">
+    {% if request.session.selected_company_instance %}
+    <span class="mr-3">
+      {% if not request.session.selected_company_instance %}
+      <img
+      src="https://ui-avatars.com/api/?name=C&background=random"
+      style="width: 45px; border-radius: 8px; "
+      />
+      {% else %}
+      <img
+      src="{{request.session.selected_company_instance.icon}}"
+      style="width: 45px; border-radius: 8px; "
+      />
+      {% endif %}
+    </span>
+    <div class="oh-sidebar__company-details">
+      <span class="oh-sidebar__company-title" style="font-size: 13px"
+      >{{request.session.selected_company_instance.company}}.</span
+      >
+      <a href="#" class="oh-sidebar__company-link" style="font-size: 10px"
+      >{% trans request.session.selected_company_instance.text %}</a
+      >
+    </div>
+    {% else %}
+    <span class="mr-3">
+      {% if request.user.employee_get.employee_work_info.company_id.icon == None %}
+      <img
+      src="https://ui-avatars.com/api/?name=C&background=random"
+      style="width: 45px; border-radius: 8px ; "
+      />
+      {% else %}
+      <img
+      src="{{request.user.employee_get.employee_work_info.company_id.icon.url}}"
+      style="width: 45px; border-radius: 8px; "
+      />
+      {% endif %}
+    </span>
+    <div class="oh-sidebar__company-details">
+      <span class="oh-sidebar__company-title" style="font-size: 13px"
+      >{{request.user.employee_get.employee_work_info.company_id}}.</span
+      >
+      <a href="#" class="oh-sidebar__company-link" style="font-size: 10px; white-space: nowrap;"
+      >{% trans "My Company" %}</a
+      >
+    </div>
+    {% endif %}
+  </div>
+
+                    <div class="oh-navbar__toggle-container">
+                        <a href="#" class="oh-navbar__toggle-link oh-link__unstyled" onclick="handleSidebarToggle()">
+                            <img src="{% static 'images/ui/menu.svg' %}" width="24" height="24"
+                                class="oh-navbar__toggle-menu" loading="lazy" />
+                        </a>
+
+                        {% if breadcrumbs %}
+                            <!-- Start of breadcrumb in nav bar -->
+                            {% include "base/navbar_components/breadcrumbs_view.html" %}
+                            <!-- End of breadcrumb in nav bar -->
+                        {% endif %}
+                        </a>
+                    </div>
+                    <div class="oh-navbar__systray">
+                        {% if "attendance"|app_installed %}
+                            <!-- Start of check in/out button in nav bar -->
+                            <div id="attendance-activity-container">
+                                {% include "attendance/components/in_out_component.html" %}
+                            </div>
+                            <!-- End of check in/out button in nav bar -->
+                        {% endif %}
+
+                        {% if request.user|any_permission:'base' or perms.attendance.view_attendancevalidationcondition %}
+                            <!-- Start of settings button in nav bar -->
+                            <div class="oh-navbar__action-icons" title="Settings">
+                                <a href="{% url 'general-settings' %}" id="settingsMenu" class="oh-navbar__action-icons-link">
+                                  <i class="mdi mdi-cog" style="color: #ffffff; font-size: 25px !important;"></i>
+
+                                </a>
+                            </div>
+                            <!-- End of settings button in nav bar -->
+                        {% endif %}
+
+                        <!-- Start of notifications button in nav bar -->
+                        {% include 'notification/notification.html' %}
+                        <!-- End of notifications button in nav bar -->
+
+                        <!-- Start of Languages dropdown in nav bar -->
+                        {% include "base/navbar_components/language_settings.html" %}
+                        <!-- End of Languages dropdown in nav bar -->
+
+                        {% if nav_company_hierarchy and perms.base.view_company %}
+                            <!-- Start of Companies dropdown in nav bar -->
+                            {% include "base/navbar_components/company_selection.html" %}
+                            <!-- End of Companies dropdown in nav bar -->
+                        {% endif %}
+
+                        <!-- Start of profile dropdown in nav bar -->
+                        {% include "navbar_component/profile_section.html" %}
+                        <!-- End of profile dropdown in nav bar -->
+                    </div>
+                </div>
+                <!-- Start of quick access in index page -->
+                {% include "floating_button.html" %}
+                <!-- End of quick access in index page -->
+            </nav>
+            <!-- End of Nav bar -->
+
+
 
     <div class="oh-wrapper-main">
 
@@ -123,65 +243,10 @@
             </div>
             <!-- End of Notifications activity bar -->
 
-            <!-- Start of Nav bar -->
-            <nav class="oh-navbar" style="width: -webkit-fill-available;;">
-                <div class="oh-wrapper oh-navbar__wrapper">
-                    <div class="oh-navbar__toggle-container">
-                        <a href="#" class="oh-navbar__toggle-link oh-link__unstyled" onclick="handleSidebarToggle()">
-                            <img src="{% static 'images/ui/menu.svg' %}" width="24" height="24"
-                                class="oh-navbar__toggle-menu" loading="lazy" />
-                        </a>
+           
 
-                        {% if breadcrumbs %}
-                            <!-- Start of breadcrumb in nav bar -->
-                            {% include "base/navbar_components/breadcrumbs_view.html" %}
-                            <!-- End of breadcrumb in nav bar -->
-                        {% endif %}
-                        </a>
-                    </div>
-                    <div class="oh-navbar__systray">
-                        {% if "attendance"|app_installed %}
-                            <!-- Start of check in/out button in nav bar -->
-                            <div id="attendance-activity-container">
-                                {% include "attendance/components/in_out_component.html" %}
-                            </div>
-                            <!-- End of check in/out button in nav bar -->
-                        {% endif %}
+            <!-- <nav>  this is an new nav bar</nav> -->
 
-                        {% if request.user|any_permission:'base' or perms.attendance.view_attendancevalidationcondition %}
-                            <!-- Start of settings button in nav bar -->
-                            <div class="oh-navbar__action-icons" title="Settings">
-                                <a href="{% url 'general-settings' %}" id="settingsMenu" class="oh-navbar__action-icons-link">
-                                    <ion-icon name="settings-outline" class="oh-navbar__icon"></ion-icon>
-                                </a>
-                            </div>
-                            <!-- End of settings button in nav bar -->
-                        {% endif %}
-
-                        <!-- Start of notifications button in nav bar -->
-                        {% include 'notification/notification.html' %}
-                        <!-- End of notifications button in nav bar -->
-
-                        <!-- Start of Languages dropdown in nav bar -->
-                        {% include "base/navbar_components/language_settings.html" %}
-                        <!-- End of Languages dropdown in nav bar -->
-
-                        {% if perms.base.change_company %}
-                            <!-- Start of Companies dropdown in nav bar -->
-                            {% include "base/navbar_components/company_selection.html" %}
-                            <!-- End of Companies dropdown in nav bar -->
-                        {% endif %}
-
-                        <!-- Start of profile dropdown in nav bar -->
-                        {% include "navbar_component/profile_section.html" %}
-                        <!-- End of profile dropdown in nav bar -->
-                    </div>
-                </div>
-                <!-- Start of quick access in index page -->
-                {% include "floating_button.html" %}
-                <!-- End of quick access in index page -->
-            </nav>
-            <!-- End of Nav bar -->
 
             <!-- Start of main section -->
             <div id='main-section'>
@@ -192,7 +257,21 @@
                 </div> {% endcomment %}
                 <div id="main-section-data" style="display: none;" data-lang="{{LANGUAGE_CODE}}">
                     {% block content %}
-                        {% include 'dashboard.html' %}
+
+                       {% if user.is_superuser or user.is_staff %}
+
+                            {% include "dashboard.html" %}
+
+                        {% elif "Company Admin" in user.groups.all|join:"," %}
+
+                            {% include "dashboard.html" %}
+
+                        {% else %}
+
+                            {% include "dashboardEmployee.html" %}
+
+                        {% endif %}
+
                     {% endblock content %}
                     <div class="oh-modal" id="genericModal" role="dialog" aria-labelledby="genericModal" aria-hidden="true">
                         <div class="oh-modal__dialog" id="genericModalBody"></div>
@@ -277,16 +356,24 @@
 
                 return formattedHours + ":" + formattedMinutes + ":" + formattedSeconds;
             }
-            // accessing initial worked hours from the user
-            $(".time-runner").not("title").html(secondsToDuration(at_work_seconds));
-            $("title.time-runner").html("{{white_label_company_name}} | " + secondsToDuration(at_work_seconds));
-            setInterval(() => {
-                if (run) {
-                    at_work_seconds = at_work_seconds + 1
-                    $("div.time-runner").html(secondsToDuration(at_work_seconds));
-                    $("title").html("{{white_label_company_name}} | " + secondsToDuration(at_work_seconds));
-                }
-            }, 1000);
+            // // accessing initial worked hours from the user
+            // $(".time-runner").not("title").html(secondsToDuration(at_work_seconds));
+            // $("title.time-runner").html("{{white_label_company_name}} | " + secondsToDuration(at_work_seconds));
+    
+  
+        // var at_work_seconds = {{ elapsed_seconds }}
+        // console.log("at_work_seconds in 292", at_work_seconds)
+        $(".time-runner").not("title").html(secondsToDuration(at_work_seconds));
+        // $("title.time-runner").html("{{white_label_company_name}} | " + secondsToDuration(at_work_seconds));
+        setInterval(() => {
+            if (run) {
+                console.log("click 7", at_work_seconds)
+                at_work_seconds = at_work_seconds + 1
+                $("div.time-runner").html(secondsToDuration(at_work_seconds));
+                // $("title").html("{{white_label_company_name}} | " + secondsToDuration(at_work_seconds));
+            }
+        }, 1000);
+
 
             function switchTab(e) {
                 let parentContainerEl = e.target.closest(".oh-tabs");
@@ -321,6 +408,70 @@
             }
         </script>
     {% endif %}
+        <script>
+    (function() {
+        let inactivityTime = function () {
+            let timer;
+            const logoutAfter = 300 * 1000; // 20 sec in ms
+
+            function resetTimer() {
+                clearTimeout(timer);
+                timer = setTimeout(logoutUser, logoutAfter);
+            }
+
+            // function logoutUser() {
+            //     // Send request to logout endpoint
+            //     fetch('/logout/', {
+            //         method: 'POST',
+            //         headers: {
+            //             'X-CSRFToken': getCookie('csrftoken')
+            //         }
+            //     }).then(() => {
+            //         window.location.href = '/login/';
+            //     });
+            // }
+
+
+            function logoutUser() {
+            // Direct redirect
+            window.location.href = '/logout';
+        }
+
+            // Helper to get CSRF token
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+
+            // Reset timer on user interaction
+            window.onload = resetTimer;
+            document.onmousemove = resetTimer;
+            document.onkeypress = resetTimer;
+            document.onclick = resetTimer;
+            document.onscroll = resetTimer;
+            document.onmouseleave = resetTimer;  // Optional: treat leaving window as inactivity
+        };
+
+        inactivityTime();
+    })();
+</script>
 </body>
 
+
+
+
+
 </html>
+
+
+

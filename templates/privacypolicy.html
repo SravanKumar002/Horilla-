@@ -1,0 +1,438 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy – TheGreaterChange</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body,ul,li,p,h2,h3,h4,h5,h6 {
+            background: #f8f8f8;
+            font-family: "Times New Roman", Times;
+            color: #000000;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background: #ffffff;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            position: relative;
+            height: 240px;
+            padding: 50px 70px;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top right, #4b1b7a 0%, transparent 45%),
+                radial-gradient(circle at bottom left, #1a0033 0%, transparent 50%),
+                linear-gradient(135deg, #12002b, #3a0a6a, #12002b);
+            color: #fff;
+        }
+
+        .header,
+        .title,
+        .date-badge {
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+
+        .gradient-blocks {
+            position: absolute;
+            top: 25px;
+            right: 60px;
+            display: flex;
+            gap: 14px;
+        }
+
+        .block {
+            width: 70px;
+            height: 90px;
+            border-radius: 10px;
+        }
+
+        .block1 {
+            background: #2ef2c9;
+        }
+
+        .block2 {
+            background: #b06cff;
+        }
+
+        .block3 {
+            background: #39e6c4;
+        }
+
+        .block4 {
+            background: #c16cff;
+        }
+
+        .title {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 56px;
+            font-weight: bold;
+            color: #ffffff;
+            margin-top: 40px;
+        }
+
+        .date-badge {
+            margin-top: 20px;
+            display: inline-block;
+            background: rgba(128, 63, 191, 0.85);
+            padding: 12px 28px;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .logo {
+            position: absolute;
+            right: 60px;
+            bottom: 30px;
+
+        }
+
+
+
+        .logo-text {
+            font-size: 22px;
+            font-weight: bold;
+            color: #000;
+        }
+
+        .content {
+            padding: 50px 60px;
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: bold;
+            font-style: italic;
+            margin: 30px 0 12px;
+            color: #000;
+        }
+
+        p {
+            font-size: 14px;
+            margin-bottom: 16px;
+            text-align: justify;
+            font-style: normal;
+            /* 👈 italic remove */
+        }
+
+        ul {
+            margin-left: 20px;
+            margin-bottom: 16px;
+        }
+
+        li {
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+
+        strong {
+            font-weight: bold;
+        }
+
+        a {
+            color: #6a1b9a;
+            text-decoration: none;
+        }
+
+        .contact-box {
+            margin: 20px 0;
+        }
+
+        .contact-box p {
+            margin-bottom: 4px;
+        }
+
+        .logo img {
+            background-color: #ffffff;
+            height: 60px;
+            /* 👈 pehle 60px tha */
+            width: auto;
+            /* ratio safe rahega */
+            object-fit: contain;
+        }
+
+        .star-list {
+            list-style-type: none !important;
+            /* dot remove */
+            padding-left: 0;
+            margin-left: 0;
+        }
+
+        .star-list li {
+            list-style: none;
+            position: relative;
+            padding-left: 18px;
+        }
+
+        .star-list li::before {
+            content: "*";
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header matching the screenshot exactly -->
+        <div class="header">
+            <div class="gradient-blocks">
+                <div class="block block1"></div>
+                <div class="block block2"></div>
+                <div class="block block3"></div>
+                <div class="block block4"></div>
+            </div>
+            <div class="title">Privacy Policy</div>
+            <div class="date-badge">Date Updated on: 2nd January 2026</div>
+
+            <div class="logo">
+                <img src="{% static 'images/ui/GreaterChangeNew.png' %}" alt="TheGreaterChange Logo" />
+
+            </div>
+        </div>
+
+        <!-- Content exactly matching the screenshot layout -->
+        <div class="content">
+            <h2>General</h2>
+            <p>The following Privacy Policy governs the online information collection practices of The greater change
+                project
+                management (herein referred to as Greaterchange HRMS) (“Greaterchange HRMS,” “we” or “us”). It outlines
+                the types of information that we gather about you while you are using our website
+                https://greaterchange.ai/privacypolicy (the “Greaterchange HRMS”) and the ways in which we use this
+                information.</p>
+            <p>Greaterchange HRMS is a web-based SaaS platform that enables users who have created Greaterchange
+                HRMS accounts (“User(s)”) to share their content such as information, files and folders (“Content”) and
+                analyze their pre-existing customers, prospective customers, and third parties (“Viewer(s)”) on the
+                basis of
+                the content viewed by them. The viewers are non-registered users of the web services and product
+                offerings
+                (“Service(s)”) provided by Greaterchange HRMS. We process your data in accordance with applicable laws
+                and
+                industry best practices.</p>
+
+            <h2>Purpose and Scope</h2>
+            <p>The purpose of this Privacy Policy is to give you a clear understanding of the information we collect,
+                how we use it, and your rights.</p>
+            <p>For customers of Greaterchange HRMS, further details may be described in your customer contract. Notices
+                highlighting specific uses of your data, with the ability to opt in or out, may also be provided when we
+                collect
+                information..</p>
+            <p>This Privacy Policy explains how our organization collects information from all Users and Viewers of our
+                Services. When providing our Services on behalf of registered users, we may collect information about
+                Viewers. The use of information collected on behalf of Users is governed primarily by our agreements
+                with
+                them and their own privacy policies. We are not responsible for the privacy practices of users or third
+                parties.
+                Some information is collected using cookies, web beacons, and similar tracking technologies.</p>
+
+            <p><strong>This policy applies to information we collect:</strong></p>
+            <ul>
+                <li>On this Website.</li>
+                <li>In e-mail, text, and other electronic communications between you and this Website.</li>
+                <li>When you interact with our advertising and applications on third-party websites or services, if
+                    those applications or advertising include links to this policy.</li>
+            </ul>
+
+            <p><strong>It does not apply to data collected:</strong></p>
+            <ul>
+                <li>Offline or through other means, including other websites operated by the Company or third parties.
+                </li>
+                <li>Through Greaterchange HRMS software products or the Greaterchange HRMS User Center.</li>
+                <li>Through any third-party application or service not linked to this Website.</li>
+            </ul>
+
+            <p>By using this Website, you agree to this Privacy Policy. It may change periodically, so please check for
+                updates.</p>
+
+            <h2>Information We Collect</h2>
+            <p><strong>We collect several types of information, including:</strong></p>
+            <ul>
+                <li>Personally Identifiable Information (PII)</li>
+                <li>The application may collect personally identifiable information such as name, postal address, date
+                    of
+                    birth, educational qualifications, emergency contact details, phone number, email address, and IP
+                    address..</li>
+                <li>Providing this information is not mandatory for application onboarding. However, certain details may
+                    become mandatory during the employee hiring process and payroll processing, in accordance with
+                    organizational, legal, and statutory requirements.</li>
+                <li>All personal data collected is securely encrypted and protected using industry-standard security
+                    measures. Users have full control over their personal information and may update or delete their
+                    data
+                    at any time, subject to applicable legal or employment record-keeping obligations.</li>
+                <li>Details about your internet connection, browser, and used devices</li>
+                <li>Data collected automatically via cookies or third parties (e.g., social media or advertising sites).
+                </li>
+            </ul>
+
+            <h2>Information You Provide</h2>
+            <p><strong>The data we collect may include:</strong></p>
+            <ul>
+                <li>Details from forms you complete on our website.</li>
+                <li>Contact and demographic information.</li>
+                <li>Correspondence records.</li>
+                <li>Information shared via chatbot interactions.</li>
+                <li>Testimonials, endorsements, or survey responses.</li>
+            </ul>
+
+            <h2>Customers</h2>
+            <p><strong>If you are a prospective or current customer:</strong></p>
+            <ul>
+                <li>We collect your contact information to offer and register our solutions.</li>
+                <li>We store your details in our CRM and marketing systems.</li>
+                <li>We may obtain your business profile from public sources like LinkedIn.</li>
+                <li>We may contact you by email or phone to provide information and assistance.</li>
+                <li>We use cookies and analytics tools to improve your experience and understand your interests.</li>
+            </ul>
+
+            <h2>Cookies and Tracking Technologies</h2>
+            <p>We use cookies and similar technologies to improve site functionality, analyze usage, and personalize
+                experiences.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Required cookies</td>
+                        <td>Enable essential site functions such as authentication and access.</td>
+                    </tr>
+                    <tr>
+                        <td>Functional cookies</td>
+                        <td>Improve website performance and analytics.</td>
+                    </tr>
+                    <tr>
+                        <td>Advertising cookies</td>
+                        <td>Personalize advertisements and track campaign performance.</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>You can manage or disable cookies through your browser settings, but some parts of the site may not
+                function properly as a result.</p>
+
+            <h2>How We Use the Information</h2>
+            <p><strong>We use collected information to:</strong></p>
+            <ul class="star-list">
+                <li>Present our website and content.</li>
+                <li>Provide requested services or fulfill contracts.</li>
+                <li>Communicate updates or support messages.</li>
+                <li>Improve products and site performance.</li>
+                <li>Fulfill legal or business obligations.</li>
+                <li>Protect our rights and users' safety.</li>
+            </ul>
+
+            <h2>Disclosure of Information</h2>
+            <p>We may disclose personal information:</p>
+            <ul class="star-list">
+                <li>When required by law or regulation.</li>
+                <li>To protect rights, privacy, or security.</li>
+                <li>To affiliated companies for consistent service delivery.</li>
+                <li>During mergers or acquisitions as part of business transfers.</li>
+                <li>With your consent for stated purposes.</li>
+            </ul>
+
+            <h2>Your Rights (Under GDPR)</h2>
+            <p><strong>Depending on your location, you may have the following rights regarding your personal
+                    data:</strong></p>
+            <ul class="star-list">
+                <li>Right to access– Receive a copy of your personal data.</li>
+                <li>Right to correction– Request correction of inaccurate data.</li>
+                <li>Right to deletion– Request erasure of your personal data.</li>
+                <li>Right to restrict processing– Limit how we process your data in certain cases.
+                </li>
+                <li>Right to data portability– Receive data in a structured, portable format.</li>
+                <li>Right to withdraw consent– Withdraw consent at any time (without affecting prior
+                    processing).</li>
+                <li>Right to object– Object to certain types of processing, including marketing.</li>
+            </ul>
+            <p>All such requests can be initiated via https://greaterchange.ai/privacypolicy.</p>
+
+            <h2>Data Retention</h2>
+            <p>We store your data as long as necessary to meet legal, business, and operational
+                requirements, taking into account:</strong></p>
+            <ul class="star-list">
+                <li>Business purposes and transactions.</li>
+                <li>Quality and performance improvements.</li>
+                <li>Legal claims and obligations.</li>
+            </ul>
+
+            <h2>Children Under 16</h2>
+            <p>Our Website and Services are not directed to children under 16. We do not knowingly collect personal data
+                from them. If you believe such data has been collected, please contact us via
+                https://greaterchange.ai/privacypolicy and we will delete it.</p>
+
+            <h2>Data Security</h2>
+            <p>We apply appropriate administrative, technical, and physical safeguards to protect your data.
+                Transactions are encrypted with SSL technology. However, no system is entirely secure, and we cannot
+                guarantee absolute protection.</p>
+
+            <h2>Policy Updates</h2>
+            <p>Any updates to this Privacy Policy will be posted on this page with a revision notice on the homepage.
+            </p>
+
+            <h2>Contact Information</h2>
+            <p>For questions or comments about this Privacy Policy or our privacy practices, please contact us at:
+                https://greaterchange.ai/privacypolicy</p>
+
+            <h2>Grievance and Support Contacts</h2>
+            <div class="contact-box">
+                <p><strong>Grievance Officer</strong></p>
+                <p>Name: Poonam Dabur</p>
+                <p>Address: Ontario Tower, Business Bay</p>
+                <p>P.O. Box 31436</p>
+                <p>Dubai, United Arab Emirates</p>
+                <p>Email: info@thegreaterchange.com</p>
+            </div>
+            <div class="contact-box">
+                <p><strong>Support Officer</strong></p>
+                <p>Name: Pradeep Kalagatha</p>
+                <p>Address: Ontario Tower, Business Bay</p>
+                <p>P.O. Box 31436</p>
+                <p>Dubai, United Arab Emirates</p>
+                <p>Email: info@prabhatech.com</p>
+            </div>
+            <p>@ 2026 The Greater Change. All Rights Reserved. Developed by <strong>PrabhaTech</strong>.</p>
+        </div>
+    </div>
+
+</body>
+
+</html>

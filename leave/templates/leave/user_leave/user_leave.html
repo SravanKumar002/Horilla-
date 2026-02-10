@@ -7,39 +7,140 @@
         white-space: nowrap;
     }
 
-    .oh-layout--grid-3 {
+    /* .oh-layout--grid-3 {
         display: inline-block;
+    } */
+/* .oh-kanban-card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border: 1px solid #e6e6e6;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    transition: 0.3s ease-in-out;
+} */
+    .oh-kanban-card{
+        display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    background: #fff;
+    padding: 15px;
+    border-radius: 15px;
+    width: 100%;
+    white-space: normal;
+    background: #ffffff;
+    border-radius: 15px;
+}
+    
+   /* ------------ APPLY BUTTON ------------ */
+.btn-apply-leave {
+    margin-left: auto;
+    padding: 6px 10px;
+    background: #7a34ab;
+    color: white;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    align-self: flex-start;
+    /* transition: 0.25s ease-in-out; */
+    width:60px;
+    position:absolute;
+    right:10px;
+
+    /* margin-right:20px; */
+}
+
+.btn-apply-leave:hover {
+    background: #7a34ab;
+}
+
+.oh-modal_close--custom {
+        border: none;
+        background: none;
+        font-size: 1.5rem;
+        opacity: 0.7;
+        position: absolute;
+        top: 25px;
+        right: 15px;
     }
 
-    .oh-kanban-card {
-        display: inline-block;
-        margin-right: 15px;
-        width:auto;
-        border-radius:15px;
+    .oh-timeoff-card__stat-container,
+    .oh-timeoff-modal__stats-container {
+        grid-template-columns: 1fr 1fr 1fr;
     }
+
+    .oh-timeoff-modal__stat-title {
+        margin-top: 10px;
+    }
+    .oh-layout--grid-3 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 22px;
+}
+/* ------------ RESPONSIVE ------------ */
+@media (max-width: 768px) {
+    .btn-apply-leave {
+        width: 60px;
+        text-align: center;
+    }
+}
 </style>
 
 
-<div class="oh-scrollable-container oh-wrapper mb-3">
-    <div class="oh-layout--grid-3 mt-2 mb-2">
+
+    <div class="oh-layout--grid-3 oh-wrapper mt-2 mb-2">
         {% for user_leave in user_leaves %}
-            <div class="oh-kanban-card" id="requestCreateCard" data-toggle="oh-modal-toggle" data-target="#objectCreateModal"
-                hx-get="{% url 'user-request' user_leave.leave_type_id.id %}" hx-target="#objectCreateModalTarget">
+            <div class="oh-kanban-card" style="border-left: 4px solid grey;border-radius: 10px;">
                 <div class="oh-kanban-card__avatar">
                     <div class="oh-kanban-card__profile-container">
-                        <img src="{{user_leave.leave_type_id.get_avatar }}" class="oh-kanban-card__profile-image"
+                        <img src="{{user_leave.leave_type_id.get_avatar }}" class="oh-kanban-card__profile-image" 
                             alt="Leave Icon" />
                     </div>
                 </div>
-                <div class="oh-kanban-card__details mt-2">
+                <div class="oh-kanban-card__details">
+                <div style="width: 95%; overflow: hidden;">
+                    <span class="oh-card__title oh-card__title--sm fw-bold"
+                        style="font-size: 18px; word-break: break-word;">
+                        {{user_leave.leave_type_id|truncatechars:20}}
+                    </span>
+                </div>
+
+                <div class="oh-timeoff-modal__stats-container mb-1">
+                    <div class="oh-timeoff-modal__stat mt-1">
+                        <span class="oh-timeoff-modal__stat-title fw-bold text-dark" style="white-space:wrap">{% trans "Available Leaves" %}</span>
+                        <span class="oh-timeoff-modal__stat-title">{% if user_leave.leave_type_id.limit_leave %}{{user_leave.available_days}} {% else %}{% trans "No Limit" %}{% endif %}</span><!-- total leave days -->
+                    </div>
+                    <div class="oh-timeoff-modal__stat mt-1">
+                        <span class="oh-timeoff-modal__stat-title fw-bold text-dark" style="white-space:wrap">{% trans "Leaves Availed" %}</span>
+                        <span class="oh-timeoff-modal__stat-title">
+                            {{user_leave.leave_taken}}       <!-- leaves taken -->
+                        </span>
+                    </div>
+                    <div class="oh-timeoff-modal__stat mt-1">
+                        <span class="oh-timeoff-modal__stat-title fw-bold text-dark" style="white-space:wrap">{% trans "Leave Balance" %}</span>
+                        <span class="oh-timeoff-modal__stat-title">{% if user_leave.leave_type_id.limit_leave %}{{user_leave.total_leave_days}}{% else %}{% trans "No Limit" %}{% endif %}</span><!-- (total leave days - total leave taken) -->
+                    </div>
+                </div>
+            </div>
+             <button class="btn-apply-leave"
+                data-toggle="oh-modal-toggle"
+                data-target="#objectCreateModal"
+                hx-get="{% url 'user-request' user_leave.leave_type_id.id %}"
+                hx-target="#objectCreateModalTarget">
+                Apply
+            </button>
+                <!-- <div class="oh-kanban-card__details mt-2">
                     <span class="oh-kanban-card__title">{{user_leave.leave_type_id|truncatechars:20}}</span>
                     <span class="oh-kanban-card__subtitle">{% trans "Available Leave Days" %} : {% if user_leave.leave_type_id.limit_leave %}{{user_leave.available_days}} {% else %}{% trans "No Limit" %}{% endif %}</span><br>
                     <span class="oh-kanban-card__subtitle">{% trans "Carryforward Leave Days" %} :
                         {{user_leave.carryforward_days}}</span><br>
                     <span class="oh-kanban-card__subtitle">{% trans "Total Leave Days" %} : {% if user_leave.leave_type_id.limit_leave %}{{user_leave.total_leave_days}}{% else %}{% trans "No Limit" %}{% endif %}</span><br>
                     <span class="oh-kanban-card__subtitle">{% trans "Total Leave taken" %} :{{user_leave.leave_taken}}</span>
-                </div>
+                </div> -->
             </div>
         {% endfor %}
     </div>
-</div>

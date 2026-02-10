@@ -1,0 +1,27 @@
+<!-- Week Headers (Sun → Sat) -->
+<div class="calendar-days-header">
+    {% for w in weekdays %}
+    <div class="day-header {% if w == 'Sun' %}sunday{% endif %}">
+        {{ w }}
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Calendar Grid -->
+<div class="calendar-days-grid">
+    {% for d in attendance_data %}
+    <div class="calendar-date {{ d.status }}" style="grid-column: {{ d.weekday|add:1 }};">
+
+        {% if d.day %}
+        {{ d.day }}
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<style>
+    .irregular {
+        background: #c8a8ff;
+        color: #30556F;
+    }
+</style>

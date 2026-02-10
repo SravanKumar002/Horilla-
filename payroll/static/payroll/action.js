@@ -339,6 +339,171 @@ function exportPayslips() {
   });
 }
 
+$("#editPayslipBulk").click(function (e) {
+  e.preventDefault();
+  var languageCode = null;
+  getCurrentLanguageCode(function (code) {
+    languageCode = code;
+    var ids = [];
+    var checkedRows = $(".payslip-checkbox").filter(":checked");
+    var localIds = $("#selectedPayslip").attr("data-ids");
+
+    if (localIds) {
+      ids = JSON.parse(localIds);
+    }
+
+    // If 'Select All' is not active but individual rows are checked, add them if not in ids
+    if (ids.length === 0 && checkedRows.length > 0) {
+      checkedRows.each(function () {
+        ids.push($(this).attr("id"));
+      });
+    }
+
+    ids = makePayslipListUnique(ids); // Ensure uniqueness
+
+    if (ids.length === 0) {
+      Swal.fire({
+        text: noRowPayrollMessages[languageCode],
+        icon: "warning",
+        confirmButtonText: "Close",
+      });
+    } else if (ids.length === 1) {
+      // Open the Edit Modal for the single selected payslip
+      var payslipId = ids[0];
+      var targetUrl = "/payroll/create-payslip?payslip_id=" + payslipId;
+
+      // We can use the existing modal toggle mechanism.
+      // We need to trigger htmx request.
+      // Ideally, we can reuse the "edit" button's attributes from the table row if visible,
+      // but here we are in bulk actions.
+      // Let's create a temporary element or use the modal trigger manually.
+
+      // Best approach: Update the modal's hx-get and click a hidden trigger or use htmx.ajax
+      // However, Horilla uses helper attributes.
+      // Let's look at how the row specific edit button works:
+      // hx-get="{% url 'create-payslip' %}?payslip_id={{payslip.id}}" data-target="#objectCreateModal" ...
+
+      $("#objectCreateModalPlaceholder").attr("hx-get", targetUrl);
+      $("#objectCreateModalPlaceholder").attr("hx-target", "#objectCreateModalTarget");
+
+      // As a workaround to trigger HTMX and open modal:
+      // We can manually trigger an ajax call or simulate a click on a hidden link.
+      // But since we have htmx available:
+      htmx.ajax('GET', targetUrl, { target: '#objectCreateModalTarget', swap: 'innerHTML' }).then(() => {
+        $('#objectCreateModal').addClass('oh-modal--show');
+      });
+
+    } else {
+      Swal.fire({
+        text: "Please select exactly one payslip to edit.", // TODO: Translate this
+        icon: "warning",
+        confirmButtonText: "Close",
+      });
+    }
+  });
+});
+
+bindBulkSave("#savePayslipBulk");
+bindBulkSave(".save-payslip-bulk");
+
+$(document).on("htmx:afterRequest", function (evt) {
+  if ($(evt.target).hasClass("payslip-inline-row") && evt.detail.successful) {
+    $("#messageContainer").html(
+      $(`
+      <div class="oh-alert-container">
+        <div class="oh-alert oh-alert--animated oh-alert--success">
+          Payslip updated successfully_415.
+        </div>
+      </div>
+      `)
+    );
+  }
+});
+
+function bindBulkSave(selector) {
+  $(document).on("click", selector, function (e) {
+    e.preventDefault();
+    var languageCode = null;
+    var button = $(this);
+    button.addClass("oh-disabled");
+    getCurrentLanguageCode(function (code) {
+      languageCode = code;
+      var checkedRows = $(".payslip-checkbox").filter(":checked");
+
+      if (checkedRows.length === 0) {
+        button.removeClass("oh-disabled");
+        Swal.fire({
+          text: noRowPayrollMessages[languageCode],
+          icon: "warning",
+          confirmButtonText: "Close",
+        });
+        return;
+      }
+
+      var savePromises = [];
+
+      checkedRows.each(function () {
+        var row = $(this).closest("form.payslip-inline-row");
+        var url = row.attr("hx-post");
+        if (!url) {
+          return;
+        }
+        var formData = new FormData(row[0]);
+        var payload = {};
+        formData.forEach(function (value, key) {
+          payload[key] = value;
+        });
+
+        // Use htmx to mimic the inline save without swapping the DOM
+        var promise = htmx
+          .ajax("POST", url, { target: "none", swap: "none", values: payload })
+          .catch(function (err) {
+            console.error("Bulk save failed for", url, err);
+          });
+
+        savePromises.push(promise);
+      });
+
+      Promise.all(savePromises).then(function () {
+        button.removeClass("oh-disabled");
+        // Reload the table to show Django messages with proper styling
+        var payslipsTable = document.getElementById("payslips-table");
+        if (payslipsTable) {
+          // Get current filter parameters from the filter form
+          var filterForm = document.getElementById("filterForm");
+          if (filterForm) {
+            var url = filterForm.getAttribute("hx-get") || "/payroll/filter-payslip/";
+            var formData = new FormData(filterForm);
+            var params = new URLSearchParams();
+            for (var pair of formData.entries()) {
+              params.append(pair[0], pair[1]);
+            }
+            var viewType = document.getElementById("payslipViewType");
+            if (viewType && viewType.value) {
+              params.append("view", viewType.value);
+            }
+            
+            // Reload table via HTMX to show Django messages with same CSS styling
+            htmx.ajax("GET", url + "?" + params.toString(), {
+              target: "#payslips-table",
+              swap: "innerHTML"
+            });
+          } else {
+            // Fallback: reload current page section
+            htmx.ajax("GET", window.location.pathname + window.location.search, {
+              target: "#payslips-table",
+              swap: "innerHTML"
+            });
+          }
+        }
+        setTimeout(function () {
+          $(".oh-modal--show").removeClass("oh-modal--show");
+        }, 1000);
+      });
+    });
+  });
+}
+
 $("#deletePayslipBulk").click(function (e) {
   e.preventDefault();
 

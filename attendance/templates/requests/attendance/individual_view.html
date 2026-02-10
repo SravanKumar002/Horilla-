@@ -89,13 +89,20 @@
 </table>
 <div class="oh-modal__button-container text-center">
     <div class="oh-btn-group d-flex flex-row-reverse">
-        <a href="{% url 'cancel-validate-attendance-request' attendance.id %}" data-toggle="oh-modal-toggle"
+        <a href="{% url 'cancel-validate-attendance-request' attendance.id %}" 
+            data-toggle="oh-modal-toggle"
+            data-target="#bigModal"
+            hx-get="{% url 'cancel-validate-attendance-request' attendance.id %}"
+            hx-target="#bigModalTarget"
             class="oh-btn oh-btn--secondary w-100">
             <ion-icon name="close-circle-outline"></ion-icon>
             {% trans "Reject" %}
         </a>
         {% if request.user|is_reportingmanager or perms.attendance.change_attendance %}
-        <a href="{% url 'approve-validate-attendance-request' attendance.id %}" class="oh-btn oh-btn--success w-100">
+        <a href="{% url 'approve-validate-attendance-request' attendance.id %}" 
+            class="oh-btn oh-btn--success w-100"
+            data-confirm-message="{% trans 'Do you want to Approve this attendance request?' %}"
+            onclick="event.preventDefault(); if(confirm(this.dataset.confirmMessage)) { window.location.href = this.href; }">
             <ion-icon name="checkmark-outline"></ion-icon>
             {% trans "Approve" %}
         </a>

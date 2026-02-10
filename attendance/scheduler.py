@@ -22,17 +22,24 @@ def create_work_record():
     for employee in employees:
         try:
             shift_schedule = employee.get_shift_schedule()
-            if shift_schedule is None:
-                continue
-
             shift = employee.get_shift()
-            record = WorkRecords(
-                employee_id=employee,
-                date=date,
-                work_record_type="DFT",
-                shift_id=shift,
-                message="",
-            )
+            if shift_schedule is None:
+                # No schedule for today -> Weekly Off
+                record = WorkRecords(
+                    employee_id=employee,
+                    date=date,
+                    work_record_type="WOF",
+                    shift_id=shift,
+                    message="",
+                )
+            else:
+                record = WorkRecords(
+                    employee_id=employee,
+                    date=date,
+                    work_record_type="DFT",
+                    shift_id=shift,
+                    message="",
+                )
             records_to_create.append(record)
         except Exception as e:
             logger.error(f"Error preparing work record for {employee}: {e}")

@@ -1,0 +1,70 @@
+from django.shortcuts import render
+
+# Create your views here.
+from django.urls import path
+from base.models import Company, CompanyAccessControl
+from horilla.decorators import login_required, manager_can_enter
+from company.utils import annotate_company_metrics, build_company_hierarchy
+
+
+@login_required
+@manager_can_enter("base.view_company")
+def company_index(request):
+    """
+    Company visibility logic:
+    - Global superusers/admins (no company assigned): See ALL companies
+    - SuperUsers with manager permission: See ALL companies
+    - SuperUsers without manager permission: See only their company and its children
+    - Regular users: See only their company and its children
+    """
+    user = request.user
+    employee = getattr(user, "employee_get", None)
+
+    # 1) Highest priority: explicit CompanyAccessControl rules
+    access_rule = CompanyAccessControl.objects.filter(user=user).first()
+    if access_rule:
+        base_companies = list(access_rule.companies.all())
+        visible_ids = set()
+        for base_company in base_companies:
+            visible_ids.add(base_company.id)
+            visible_ids.update(
+                Company._get_descendant_company_ids(base_company.id)
+            )
+        company_qs = Company.objects.filter(id__in=visible_ids).select_related(
+            "parent_company"
+        )
+    else:
+        # 2) Manager permission override: see everything
+        if user.has_perm("base.view_company") and user.has_perm("base.change_employeeshiftschedule"):
+            company_qs = Company.objects.all().select_related("parent_company")
+        else:
+            # 3) Superuser hierarchy / 4) normal users (handled by helper)
+            company_qs = Company.get_companies_for_user(user).select_related(
+                "parent_company"
+            )
+
+    # A user can see subcompanies only when BOTH company & subcompany
+    # view permissions are granted. Otherwise, hide all subcompanies.
+    can_view_subcompanies = (
+        request.user.has_perm("base.view_company")
+        and request.user.has_perm("base.view_subcompany")
+    )
+    if not can_view_subcompanies:
+        company_qs = company_qs.filter(parent_company__isnull=True)
+
+    # Force evaluation of queryset to ensure filtering is applied
+    company_list = list(company_qs)
+    annotate_company_metrics(company_list)
+    company_hierarchy = build_company_hierarchy(company_list)
+
+    return render(
+        request,
+        "company/companies_card.html",
+        {
+            "companies": company_list,
+            "company_hierarchy": company_hierarchy,
+            "model": Company(),
+            "can_view_subcompanies": can_view_subcompanies,
+        },
+    )
+

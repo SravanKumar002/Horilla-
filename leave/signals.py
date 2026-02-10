@@ -17,6 +17,7 @@ if apps.is_installed("attendance"):
         """
         Overriding LeaveRequest model save method
         """
+        print("leaverequest_pre_save signal triggered_line 21")
         WorkRecords = get_horilla_model_class(
             app_label="attendance", model="workrecords"
         )
@@ -53,20 +54,11 @@ if apps.is_installed("attendance"):
                         and instance.end_date_breakdown == "second_half"
                         else 0.00
                     )
-                    status = (
-                        "CONF"
-                        if instance.start_date == date
-                        and instance.start_date_breakdown == "first_half"
-                        or instance.end_date == date
-                        and instance.end_date_breakdown == "second_half"
-                        else "ABS"
-                    )
-                    work_entry.work_record_type = status
+                    # Mark leave type in WorkRecords based on day_percentage
+                    work_entry.work_record_type = "LHD" if work_entry.day_percentage == 0.50 else "LFD"
                     work_entry.date = date
                     work_entry.message = (
-                        "Leave"
-                        if status == "ABS"
-                        else _("Half day Attendance need to validate")
+                        _("Half day Leave") if work_entry.day_percentage == 0.50 else "Leave"
                     )
                     work_entry.save()
 

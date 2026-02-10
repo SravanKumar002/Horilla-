@@ -4,12 +4,23 @@ views.py
 This module is used to map url pattens with django views or methods
 """
 
+import calendar
+from django.db.models import Q
+from attendance.models import WorkRecords, Attendance
+from leave.models import LeaveRequest
+from django.core.paginator import Paginator
+from attendance.methods.utils import (
+    Request,
+    paginator_qry,
+    strtime_seconds,
+)
+
 import csv
 import json
 import os
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from email.mime.image import MIMEImage
 from os import path
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
@@ -36,6 +47,7 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.templatetags.static import static
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.html import strip_tags
@@ -132,6 +144,7 @@ from base.models import (
     BaserequestFile,
     BiometricAttendance,
     Company,
+    CompanyAccessControl,
     CompanyLeaves,
     DashboardEmployeeCharts,
     Department,
@@ -147,6 +160,7 @@ from base.models import (
     MultipleApprovalCondition,
     MultipleApprovalManagers,
     RotatingShift,
+    RotatingShiftAssign,
     RotatingWorkType,
     RotatingWorkTypeAssign,
     ShiftRequest,
@@ -188,8 +202,18 @@ from horilla_audit.forms import HistoryTrackingFieldsForm
 from horilla_audit.models import AccountBlockUnblock, AuditTag, HistoryTrackingFields
 from notifications.models import Notification
 from notifications.signals import notify
+import copy
+from attendance.filters import AttendanceActivityFilter
 
-
+from attendance.filters import AttendanceActivity
+from django.core.exceptions import ObjectDoesNotExist
+from payroll.models.models import Payslip
+from base.models import EmployeeShiftDay, EmployeeShiftSchedule
+from attendance.models import AttendanceLateComeEarlyOut, Attendance, WorkRecords, AttendanceActivity
+from base.models import Holidays
+from datetime import timedelta, date as datetime_date
+from django.db.models import Q
+    
 def custom404(request):
     """
     Custom 404 method
@@ -563,7 +587,7 @@ def initialize_job_position_delete(request, obj_id):
         },
     )
 
-
+@csrf_exempt
 def login_user(request):
     """
     Handles user login and authentication.
@@ -619,6 +643,68 @@ def login_user(request):
     return render(
         request, "login.html", {"initialize_database": initialize_database_condition()}
     )
+
+
+@csrf_exempt
+def api_login_user(request):
+    """
+    Handles user login and authentication for API requests.
+    Returns JSON responses instead of redirects or template renders.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+
+    username = request.POST.get("username")
+    password = request.POST.get("password")
+    next_url = request.GET.get("next", "/")
+    query_params = request.GET.dict()
+    query_params.pop("next", None)
+    params = urlencode(query_params)
+
+    if not username or not password:
+        return JsonResponse({"error": _("Username and password are required.")}, status=400)
+
+    user = authenticate(request, username=username, password=password)
+
+    if not user:
+        user_object = User.objects.filter(username=username).first()
+        if user_object and not user_object.is_active:
+            return JsonResponse({"error": _("Access Denied: Your account is blocked.")}, status=403)
+        return JsonResponse({"error": _("Invalid username or password.")}, status=401)
+
+    employee = getattr(user, "employee_get", None)
+    if employee is None:
+        return JsonResponse(
+            {"error": _("An employee related to this user's credentials does not exist.")},
+            status=404,
+        )
+
+    if not employee.is_active:
+        return JsonResponse(
+            {"error": _("This user is archived. Please contact the manager for more information.")},
+            status=403,
+        )
+
+    login(request, user)
+
+    # Ensure next_url is safe
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = "/"
+
+    if params:
+        next_url += f"?{params}"
+
+    return JsonResponse({
+        "message": _("Login successful."),
+        "next_url": next_url,
+        "user": {
+            "username": user.username,
+            "email": user.email,
+            "is_staff": user.is_staff,
+            "is_superuser": user.is_superuser,
+        }
+    }, status=200)
+
 
 
 def include_employee_instance(request, form):
@@ -909,47 +995,1509 @@ def logout_user(request):
     return response
 
 
+#----------------------------------Today's Atteendance
+def get_present_count(target_date=None):
+    """
+    Get count of present employees for a specific date
+    Returns: int - count of employees marked present
+    """
+    # if target_date is None:
+    #     target_date = date.today()
+   
+    # return Attendance.objects.filter(
+    #     attendance_date=target_date,
+    #     attendance_validated=True
+    # ).count()
+    if target_date is None:
+        target_date = date.today()
+   
+    return AttendanceActivity.objects.filter(
+        attendance_date=target_date
+    ).values('employee_id').distinct().count()
+ 
+# def get_absent_count(target_date=None):
+#     """
+#     Get count of absent employees for a specific date
+#     Returns: int - count of absent employees
+#     """
+#     if target_date is None:
+#         target_date = date.today()
+   
+#     # Method 1: Using AttendanceWorkRecords (more accurate)
+#     absent = WorkRecords.objects.filter(
+#         date=target_date,
+#         at_work_second=0,
+#         leave_request_id__isnull=True
+#     ).count()
+   
+#     # Method 2: Calculate from total expected minus present (if work records not available)
+#     if absent == 0:
+#         total_expected = Employee.objects.filter(is_active=True).count()
+#         present = get_present_count(target_date)
+#         on_leave = get_on_leave_count(target_date)
+#         absent = total_expected - present - on_leave
+   
+#     return absent
+
+
+
+
+
+def get_absent_count(target_date=None):
+
+    """
+
+    Get count of absent employees for a specific date
+
+    Returns: int - count of absent employees
+
+    """
+
+    if target_date is None:
+        target_date = date.today()
+
+   
+
+    # Method 1: Using AttendanceWorkRecords (more accurate)
+
+    # absent = WorkRecords.objects.filter(
+
+    #     date=target_date,
+
+    #     at_work_second=0,
+
+    #     leave_request_id__isnull=True
+
+    # ).count()
+
+   
+
+    # Method 2: Calculate from total expected minus present (if work records not available)
+
+    # if absent == 0:
+
+    #     total_expected = Employee.objects.filter(is_active=True).count()
+
+    #     present = get_present_count(target_date)
+
+    #     on_leave = get_on_leave_count(target_date)
+
+    #     absent = total_expected - present - on_leave
+
+    total_employees = Employee.objects.filter(is_active=True).count()
+    absent = total_employees - get_present_count()
+    return max(absent,0)
+ 
+ 
+def get_on_leave_count(target_date=None):
+    """
+    Get count of employees on approved leave for a specific date
+    Returns: int - count of employees on leave
+    """
+    if target_date is None:
+        target_date = date.today()
+   
+    return LeaveRequest.objects.filter(
+        start_date__lte=target_date,
+        end_date__gte=target_date,
+        status='approved'
+    ).count()
+ 
+ 
+def get_on_duty_count(target_date=None):
+    """
+    Get count of employees currently on duty (with attendance activities)
+    Returns: int - count of employees on duty
+    """
+    if target_date is None:
+        target_date = date.today()
+   
+    return AttendanceActivity.objects.filter(
+        attendance_date=target_date
+    ).values('employee_id').distinct().count()
+
+
+
 class Workinfo:
     def __init__(self, employee) -> None:
         self.employee_work_info = employee
         self.employee_id = employee
         self.id = employee.id
         pass
+    
 
 
+def find_late_come(today, department=None):
+    """
+    This method is used to find count of late comers
+    """
+    from attendance.models import (AttendanceLateComeEarlyOut)
+    late_come_obj = AttendanceLateComeEarlyOut.objects.filter(
+        type="late_come", attendance_id__attendance_date=today
+    )
+    if department is not None:
+        late_come_obj = late_come_obj.filter(
+            employee_id__employee_work_info__department_id=department
+        )
+    return len(late_come_obj)
+    
+def get_dashboard_context(request):
+    """Build and return dashboard data without rendering. Includes shift timing."""
+    print("===== DEBUG: get_dashboard_context() START =====")
+    user = request.user
+    print("User:", user)
+
+    today = date.today()
+    print("Today's Date:", today)
+
+    data = None
+
+    # --- Employee ---
+    try:
+        employee = user.employee_get
+        print("Employee found:", employee)
+    except AttributeError:
+        employee = None
+        print("⚠️ Employee profile not found for this user!")
+
+    employee_name = employee.user.get_full_name() if employee and hasattr(employee, 'user') else user.username
+    print("Employee Name:", employee_name)
+
+    payslip = Payslip.objects.filter(employee_id=employee).last()
+    payslip_id = payslip.id if payslip else None
+    print("Payslip ID:", payslip_id)
+
+    # --- Defaults ---
+    reporting_manager = "N/A"
+    shift_schedule = "N/A"
+    shift_start_time = "--:--"
+    shift_end_time = "--:--"
+
+    # --- Manager and Shift Info ---
+    try:
+        employee_work_info = employee.employee_work_info
+        print("Employee Work Info:", employee_work_info)
+
+        reporting_manager = employee_work_info.reporting_manager_id
+        print("Reporting Manager Employee:", reporting_manager)
+
+        shift_schedule = employee_work_info.shift_id
+        print("Shift Schedule:", shift_schedule)
+
+        # Try to get today's shift timing from EmployeeShiftSchedule (through model)
+        if shift_schedule:
+            today_day_key = today.strftime("%A").lower()
+            print("Today Day Key:", today_day_key)
+
+            today_schedule = (
+                EmployeeShiftSchedule.objects.filter(
+                    shift_id=shift_schedule,
+                    day__day__iexact=today_day_key,
+                )
+                .select_related("day")
+                .first()
+            )
+            print("Today's Schedule:", today_schedule)
+
+            if today_schedule:
+                if today_schedule.start_time:
+                    shift_start_time = today_schedule.start_time.strftime("%I:%M %p")
+                if today_schedule.end_time:
+                    shift_end_time = today_schedule.end_time.strftime("%I:%M %p")
+            else:
+                print(
+                    "No schedule found for today, trying fallback to the first available schedule."
+                )
+                fallback_schedule = (
+                    EmployeeShiftSchedule.objects.filter(shift_id=shift_schedule)
+                    .select_related("day")
+                    .order_by("day__day")
+                    .first()
+                )
+                print("Fallback Schedule:", fallback_schedule)
+                if fallback_schedule:
+                    if fallback_schedule.start_time:
+                        shift_start_time = fallback_schedule.start_time.strftime(
+                            "%I:%M %p"
+                        )
+                    if fallback_schedule.end_time:
+                        shift_end_time = fallback_schedule.end_time.strftime("%I:%M %p")
+
+        print(f"Shift Start: {shift_start_time}, Shift End: {shift_end_time}")
+
+    except Exception as e:
+        print("⚠️ Error in Manager/Shift block:", e)
+        reporting_manager = "Info Unavailable"
+        shift_schedule = "Info Unavailable"
+        shift_start_time = "--:--"
+        shift_end_time = "--:--"
+
+    # --- Attendance Info ---
+    try:
+        data = AttendanceActivity.objects.filter(employee_id=employee)
+        print(f"Total Attendance Records Found: {data.count()}")
+
+        # ⭐ FRESH QUERY: Force fresh database query to get latest attendance data
+        # This ensures we get the most recent clock-in data, especially after mobile clock-in
+        attendance_activities_today = list(AttendanceActivity.objects.filter(
+            employee_id=employee,
+            attendance_date=today,
+        ).order_by("clock_in"))
+        print("Today's Attendance Records:", attendance_activities_today)
+
+        # Find first check-in from the list
+        first_checkin_obj = next((act for act in attendance_activities_today if act.clock_in is not None), None)
+        print("First Check-in Object:", first_checkin_obj)
+        if first_checkin_obj:
+            status = "Present"
+        else:
+            status = "Absent"
+        # Find last check-out from the list
+        last_checkout_obj = next((act for act in reversed(attendance_activities_today) if act.clock_out is not None), None)
+        print("Last Check-out Object:", last_checkout_obj)
+
+        first_check_in_time = (
+            first_checkin_obj.clock_in.strftime("%I:%M %p")
+            if first_checkin_obj and first_checkin_obj.clock_in
+            else "--:--"
+        )
+        print("First Check-in Time:", first_check_in_time)
+
+        last_check_out_time = (
+            last_checkout_obj.clock_out.strftime("%I:%M %p")
+            if last_checkout_obj and last_checkout_obj.clock_out
+            else "--:--"
+        )
+        print("Last Check-out Time:", last_check_out_time)
+
+    except Exception as e:
+        print("⚠️ Error fetching Attendance Info:", e)
+        first_check_in_time = "--:--"
+        last_check_out_time = "--:--"
+        status = "N/A"
+
+    # --- Calculate Total Working Hours ---
+    total_working_hour = "00 Hours 00 Mins"
+    try:
+        if (
+            first_checkin_obj
+            and last_checkout_obj
+            and first_checkin_obj.clock_in
+            and last_checkout_obj.clock_out
+        ):
+            start_datetime = datetime.combine(today, first_checkin_obj.clock_in)
+            end_datetime = datetime.combine(today, last_checkout_obj.clock_out)
+            if end_datetime < start_datetime:
+                end_datetime += timedelta(days=1)
+            duration = end_datetime - start_datetime
+            total_seconds = duration.total_seconds()
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+            total_working_hour = f"{hours:02} Hours {minutes:02} Mins"
+        print("Total Working Hour:", total_working_hour)
+    except Exception as e:
+        print("⚠️ Error calculating total working hours:", e)
+        total_working_hour = "Error Calculating Hours"
+
+    # --- Birthday ---
+    is_birthday = hasattr(employee, "dob") and employee.dob and (
+        employee.dob.month == today.month and employee.dob.day == today.day
+    )
+    print("Is Birthday:", is_birthday)
+
+    print("===== DEBUG: get_dashboard_context() END =====\n")
+    print("No data is coming for shift start/end times:", shift_start_time, shift_end_time)
+    # //------------------new function---------------------
+ 
+    absent_count = get_absent_count()
+    present_count = get_present_count()
+    on_leave_count = get_on_leave_count()
+    on_duty_count = get_on_duty_count()
+    late_come = find_late_come(today)
+    # --- Final Return ---
+    return {
+        "user": user,
+        "employee_name": employee_name,
+        "first_check_in": first_check_in_time,
+        "last_check_out": last_check_out_time,
+        "shift_schedule": shift_schedule,
+        "shift_start_time": shift_start_time,
+        "shift_end_time": shift_end_time,
+        "reporting_manager": reporting_manager,
+        "total_working_hour": total_working_hour,
+        "is_birthday": is_birthday,
+        "payslip_id": payslip_id,
+        "status": status,
+        "absent_count": absent_count,
+        "present_count":present_count,
+        "on_leave_count": on_leave_count,
+        "on_duty_count": on_duty_count,
+        "late_come": late_come,
+    }
+ 
+@login_required
+def dashboard(request):
+    context = get_dashboard_context(request)
+    response = render(request, "dashboardEmployee.html", context)
+    # ⭐ CACHE CONTROL: Prevent browser caching to ensure fresh data after mobile clock-in
+    # This fixes the issue where users need to refresh twice to see updated attendance status
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
+ 
+ 
 @login_required
 def home(request):
-    """
-    This method is used to render index page
-    """
-
+    """Render index page with embedded dashboard data."""
     today = datetime.today()
     today_weekday = today.weekday()
     first_day_of_week = today - timedelta(days=today_weekday)
     last_day_of_week = first_day_of_week + timedelta(days=6)
-
+ 
     employee_charts = DashboardEmployeeCharts.objects.get_or_create(
         employee=request.user.employee_get
     )[0]
-
-    user = request.user
-    today = timezone.now().date()  # Get today's date
-    is_birthday = None
-
-    if user.employee_get.dob != None:
-        is_birthday = (
-            user.employee_get.dob.month == today.month
-            and user.employee_get.dob.day == today.day
-        )
-
+ 
+    # ⬇️ Get dashboard data
+    dashboard_context = get_dashboard_context(request)
+ 
+    # Combine both contexts
     context = {
         "first_day_of_week": first_day_of_week.strftime("%Y-%m-%d"),
         "last_day_of_week": last_day_of_week.strftime("%Y-%m-%d"),
         "charts": employee_charts.charts,
-        "is_birthday": is_birthday,
+        **dashboard_context,  # merge everything from dashboard here
     }
 
-    return render(request, "index.html", context)
+    response = render(request, "index.html", context)
+    # ⭐ CACHE CONTROL: Prevent browser caching to ensure fresh data after mobile clock-in
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
+
+# @login_required
+# def calendar_work_records_change_month(request):
+#     calendar.setfirstweekday(calendar.SUNDAY)
+#     month_str = request.GET.get(
+#         "month",
+#         f"{date.today().year}-{date.today().month:02d}"
+#     )
+#     try:
+#         year, month = map(int, month_str.split("-"))
+#     except ValueError:
+#         year, month = date.today().year, date.today().month
+
+#     employees = [request.user.employee_get]
+#     employee = employees[0]
+#     # Determine employee shift once for schedule checks
+#     emp_shift = getattr(getattr(employee, "employee_work_info", None), "shift_id", None)
+
+#     cal = calendar.monthcalendar(year, month)
+
+#     attendance_data = []
+
+#     # Build list of valid dates only
+#     month_dates = [
+#         date(year, month, d)
+#         for week in cal
+#         for d in week if d != 0
+#     ]
+
+#     # Load work records
+#     work_records = WorkRecords.objects.filter(
+#         date__in=month_dates,
+#         employee_id__in=employees
+#     )
+
+#     wr_dict = {(wr.employee_id.id, wr.date): wr for wr in work_records}
+
+#     for week_index, week in enumerate(cal):
+#         for weekday_index, d in enumerate(week):
+
+#             # Empty cells in calendar grid
+#             if d == 0:
+#                 attendance_data.append({
+#                     "day": "",
+#                     "date": "",
+#                     "weekday": weekday_index,
+#                     "day_name": "",
+#                     "week": week_index,
+#                     "status": "empty"
+#                 })
+#                 continue
+
+#             # Valid date
+#             date_obj = date(year, month, d)
+
+#             # Match work record
+#             wr = wr_dict.get((employees[0].id, date_obj))
+
+#             if wr:
+#                 t_today = date.today()
+#                 if date_obj > t_today:
+#                     if wr.work_record_type == "WOF":
+#                         day_status = "weekly-off"
+#                     elif wr.work_record_type == "LFD":
+#                         day_status = "leave-full"
+#                     elif wr.work_record_type == "LHD":
+#                         # Future half-day leave: show a half-leave background (generic, no present/absent)
+#                         day_status = "leave-half"
+#                     else:
+#                         day_status = "future"
+#                 else:
+#                     if wr.work_record_type == "LFD":
+#                         day_status = "leave-full"
+#                     elif wr.work_record_type == "LHD":
+#                         # Compute if worked time meets half-day threshold
+#                         worked_sec = 0
+#                         attendance = Attendance.objects.filter(
+#                             employee_id=employee, attendance_date=date_obj
+#                         ).first()
+#                         if attendance:
+#                             if attendance.attendance_worked_hour:
+#                                 worked_sec = strtime_seconds(attendance.attendance_worked_hour)
+#                             elif attendance.at_work_second:
+#                                 worked_sec = attendance.at_work_second or 0
+#                         # Half of shift minimum_hour
+#                         half_threshold = 0
+#                         if emp_shift:
+#                             day_name = date_obj.strftime("%A").lower()
+#                             schedule = EmployeeShiftSchedule.objects.filter(
+#                                 shift_id=emp_shift, day__day=day_name
+#                             ).first()
+#                             if schedule:
+#                                 half_threshold = max(0, strtime_seconds(schedule.minimum_working_hour) // 2)
+#                         day_status = (
+#                             "leave-half-present" if worked_sec >= half_threshold else "leave-half-absent"
+#                         )
+#                     else:
+#                         status_map = {
+#                             "FDP": "present",
+#                             "HDP": "half-day",
+#                             "ABS": "absent",
+#                             "WOF": "weekly-off",
+#                             "CONF": "public-holiday",
+#                             "MCO": "missed-check-out",
+#                         }
+#                         day_status = status_map.get(wr.work_record_type, "absent")
+#             else:
+#                 today = date.today()
+#                 if emp_shift:
+#                     day_name = date_obj.strftime("%A").lower()
+#                     is_working_day = EmployeeShiftSchedule.objects.filter(
+#                         shift_id=emp_shift, day__day=day_name
+#                     ).exists()
+#                 else:
+#                     is_working_day = True
+#                 if date_obj > today:
+#                     day_status = "future" if is_working_day else "weekly-off"
+#                 else:
+#                     day_status = "absent" if is_working_day else "weekly-off"
+
+#             attendance_data.append({
+#                 "day": d,
+#                 "date": date_obj,
+#                 "weekday": weekday_index,     # 0=Sun...6=Sat
+#                 "day_name": date_obj.strftime("%a"),
+#                 "week": week_index,
+#                 "status": day_status,
+#             })
+
+#     # Week headers (Sun to Sat)
+#     weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+#     # Debug print
+#     print("\n================ ATTENDANCE DATA ================\n")
+#     for item in attendance_data:
+#         print(item)
+#     print("\n=================================================\n")
+
+#     return render(request, "partials/calendar_days.html", {
+#         "attendance_data": attendance_data,
+#         "weekdays": weekdays,
+#     })
+
+
+# def calculate_attendance_status_from_shift(
+#     employee, date_obj, emp_shift, attendance_obj=None, activities=None
+# ):
+#     """
+#     Calculate attendance status based on shift settings, grace period, and minimum working hours.
+    
+#     This function implements the comprehensive attendance logic:
+#     - Uses shift schedule (start_time, end_time, minimum_working_hour)
+#     - Applies grace period rules (from shift.grace_time_id or default)
+#     - Validates minimum working hour completion
+#     - Determines status: present, absent, half-day, etc.
+    
+#     Args:
+#         employee: Employee instance
+#         date_obj: date object for the attendance date
+#         emp_shift: EmployeeShift instance (can be None)
+#         attendance_obj: Attendance instance (optional, for worked hours)
+#         activities: QuerySet of AttendanceActivity (optional, will query if not provided)
+    
+#     Returns:
+#         dict with keys:
+#             - status: str ("present", "absent", "half-day", "not-started", etc.)
+#             - worked_seconds: int (total worked seconds)
+#             - minimum_seconds: int (required minimum seconds)
+#             - clock_in_time: time or None
+#             - clock_out_time: time or None
+#             - is_late: bool (clock-in after shift start + grace)
+#             - is_early_out: bool (clock-out before shift end - grace)
+#             - debug_info: dict (for debugging)
+#     """
+#     from attendance.models import AttendanceActivity, GraceTime
+#     from attendance.methods.utils import strtime_seconds
+    
+#     result = {
+#         "status": "absent",
+#         "worked_seconds": 0,
+#         "minimum_seconds": 0,
+#         "clock_in_time": None,
+#         "clock_out_time": None,
+#         "is_late": False,
+#         "is_early_out": False,
+#         "debug_info": {},
+#     }
+    
+#     print(f"\n[calculate_attendance_status_from_shift] Starting calculation for:")
+#     print(f"  Employee ID: {getattr(employee, 'id', None)}")
+#     print(f"  Date: {date_obj}")
+#     print(f"  Shift: {getattr(emp_shift, 'employee_shift', None) if emp_shift else None}")
+    
+#     # Step 1: Get shift schedule for this day
+#     schedule = None
+#     day_name = date_obj.strftime("%A").lower()
+#     if emp_shift:
+#         schedule_qs = EmployeeShiftSchedule.objects.filter(
+#             shift_id=emp_shift, day__day=day_name
+#         )
+#         schedule = schedule_qs.first() if schedule_qs.exists() else None
+    
+#     if not schedule:
+#         print(f"[calculate_attendance_status_from_shift] No schedule found for {day_name}")
+#         result["status"] = "absent"
+#         return result
+    
+#     result["debug_info"]["schedule"] = {
+#         "start_time": str(schedule.start_time) if schedule.start_time else None,
+#         "end_time": str(schedule.end_time) if schedule.end_time else None,
+#         "minimum_working_hour": schedule.minimum_working_hour,
+#     }
+    
+#     # Step 2: Get grace period (shift-specific or default)
+#     grace_period_secs = 0
+#     grace_period = None
+#     if emp_shift and hasattr(emp_shift, "grace_time_id") and emp_shift.grace_time_id:
+#         grace_period = emp_shift.grace_time_id
+#         if grace_period.is_active and grace_period.allowed_clock_in:
+#             grace_period_secs = grace_period.allowed_time_in_secs
+#             print(f"[calculate_attendance_status_from_shift] Using shift-specific grace: {grace_period.allowed_time} ({grace_period_secs}s)")
+#     elif GraceTime.objects.filter(is_default=True, is_active=True).exists():
+#         grace_period = GraceTime.objects.filter(is_default=True, is_active=True).first()
+#         if grace_period.allowed_clock_in:
+#             grace_period_secs = grace_period.allowed_time_in_secs
+#             print(f"[calculate_attendance_status_from_shift] Using default grace: {grace_period.allowed_time} ({grace_period_secs}s)")
+    
+#     result["debug_info"]["grace_period_secs"] = grace_period_secs
+    
+#     # Step 3: Get minimum working hours
+#     minimum_seconds = strtime_seconds(schedule.minimum_working_hour)
+#     result["minimum_seconds"] = minimum_seconds
+#     print(f"[calculate_attendance_status_from_shift] Minimum working hours: {schedule.minimum_working_hour} ({minimum_seconds}s)")
+    
+#     # Step 4: Get attendance activities for this date
+#     if activities is None:
+#         activities = AttendanceActivity.objects.filter(
+#             employee_id=employee,
+#             attendance_date=date_obj,
+#             clock_in__isnull=False
+#         ).order_by("clock_in")
+    
+#     if not activities.exists():
+#         print(f"[calculate_attendance_status_from_shift] No activities found")
+#         result["status"] = "absent"
+#         return result
+    
+#     # Step 5: Calculate total worked seconds from activities
+#     worked_seconds = 0
+#     first_clock_in = None
+#     last_clock_out = None
+    
+#     for activity in activities:
+#         if activity.clock_in:
+#             if first_clock_in is None:
+#                 first_clock_in = activity.clock_in
+#                 result["clock_in_time"] = activity.clock_in
+        
+#         if activity.clock_out:
+#             last_clock_out = activity.clock_out
+#             result["clock_out_time"] = activity.clock_out
+            
+#             # Calculate duration for this activity
+#             clock_in_dt = datetime.combine(activity.clock_in_date or date_obj, activity.clock_in)
+#             clock_out_dt = datetime.combine(activity.clock_out_date or date_obj, activity.clock_out)
+#             duration_secs = (clock_out_dt - clock_in_dt).total_seconds()
+#             worked_seconds += max(0, duration_secs)
+#         else:
+#             # Activity is still ongoing - calculate up to now
+#             clock_in_dt = datetime.combine(activity.clock_in_date or date_obj, activity.clock_in)
+#             now_dt = datetime.now()
+#             duration_secs = (now_dt - clock_in_dt).total_seconds()
+#             worked_seconds += max(0, duration_secs)
+    
+#     # Also check Attendance model for worked hours (fallback)
+#     if attendance_obj:
+#         if attendance_obj.attendance_worked_hour:
+#             worked_seconds_from_attendance = strtime_seconds(attendance_obj.attendance_worked_hour)
+#             if worked_seconds_from_attendance > worked_seconds:
+#                 worked_seconds = worked_seconds_from_attendance
+#         elif attendance_obj.at_work_second:
+#             if attendance_obj.at_work_second > worked_seconds:
+#                 worked_seconds = attendance_obj.at_work_second
+    
+#     result["worked_seconds"] = worked_seconds
+#     print(f"[calculate_attendance_status_from_shift] Worked seconds: {worked_seconds}s")
+
+#     if not first_clock_in and schedule.start_time:
+#         result["status"] = "empty"
+       
+    
+#     # Step 6: Check clock-in timing (late or on-time with grace)
+#     if first_clock_in and schedule.start_time:
+#         clock_in_secs = strtime_seconds(first_clock_in.strftime("%H:%M"))
+#         shift_start_secs = strtime_seconds(schedule.start_time.strftime("%H:%M"))
+#         effective_start_secs = shift_start_secs + grace_period_secs
+        
+#         if clock_in_secs > effective_start_secs:
+#             result["is_late"] = True
+#             print(f"[calculate_attendance_status_from_shift] Late clock-in: {first_clock_in} (shift start: {schedule.start_time}, grace: {grace_period_secs}s)")
+#         else:
+#             print(f"[calculate_attendance_status_from_shift] On-time clock-in: {first_clock_in} (within grace period)")
+    
+
+#         # Step 7: Check clock-out timing (early out)
+#         if last_clock_out and schedule.end_time:
+#             clock_out_secs = strtime_seconds(last_clock_out.strftime("%H:%M"))
+#             shift_end_secs = strtime_seconds(schedule.end_time.strftime("%H:%M"))
+
+#             clock_out_grace_secs = 0
+#             if grace_period and grace_period.is_active and grace_period.allowed_clock_out:
+#                 clock_out_grace_secs = grace_period.allowed_time_in_secs
+
+#             effective_end_secs = shift_end_secs - clock_out_grace_secs
+
+#             if clock_out_secs < effective_end_secs:
+#                 result["is_early_out"] = True
+
+
+#         # ================= FINAL STATUS DECISION =================
+
+#         # 5️⃣ Shift not started → NO COLOR
+#         if not first_clock_in and schedule.start_time:
+#             result["status"] = "empty"
+#             print(f"[calculate_attendance_status_from_shift] Shift not started")
+#             return result
+
+#         # 3️⃣ Auto clock-out → ABSENT
+#         if attendance_obj and getattr(attendance_obj, "is_auto_clock_out", False):
+#             print(f"[calculate_attendance_status_from_shift] Auto clock-out detected")
+#             result["status"] = "absent"
+#             return result
+
+#         # 9️⃣ Late coming (after grace) → ABSENT
+#         if result["is_late"]:
+#             print(f"[calculate_attendance_status_from_shift] Late coming detected")
+#             result["status"] = "absent"
+#             return result
+
+#         # 🔟 Very early clock-out (before shift end − 1 min)
+#         if result["is_early_out"] and worked_seconds < minimum_seconds:
+#             print(f"[calculate_attendance_status_from_shift] Very early clock-out detected")
+#             result["status"] = "absent"
+#             return result
+
+#         # 1️⃣ / 6️⃣ / 7️⃣ / 8️⃣ Minimum hours completed → PRESENT
+#         if worked_seconds >= minimum_seconds:
+#             print(f"[calculate_attendance_status_from_shift] Minimum hours completed")
+#             result["status"] = "present"
+#             return result
+
+#         # Grace + early going (8 min rule)
+#         if worked_seconds >= 480:  # 8 minutes
+#             print(f"[calculate_attendance_status_from_shift] Grace + early going (8 min rule) met")
+#             result["status"] = "present"
+#             return result
+
+#         # Default
+#         result["status"] = "absent"
+#         print(f"[calculate_attendance_status_from_shift] Defaulting to absent")
+#         return result
+
+
+def get_shift_attendance_status(
+    *,
+    employee,
+    date_obj,
+    emp_shift,
+    today,
+    attendance_qs,
+    activity_qs,
+):
+    """
+    Returns: status string or None (if shift logic not applicable)
+    """
+
+    if not emp_shift:
+        return None
+
+    schedule = EmployeeShiftSchedule.objects.filter(
+        shift_id=emp_shift,
+        day__day=date_obj.strftime("%A").lower()
+    ).first()
+
+    if not schedule:
+        return None
+
+    attendance = attendance_qs.first()
+    activities = activity_qs
+
+    # 🔹 Shift not started (TODAY only)
+    if (
+        date_obj == today
+        and schedule.start_time
+        and datetime.now().time() < schedule.start_time
+        and not activities.exists()
+    ):
+        return "empty"
+
+    # 🔹 Auto clock-out
+    if attendance and getattr(attendance, "is_auto_clock_out", False):
+        return "absent"
+
+    worked_seconds = 0
+    first_in = None
+    last_out = None
+
+    for act in activities:
+        if not first_in:
+            first_in = act.clock_in
+        if act.clock_out:
+            last_out = act.clock_out
+            worked_seconds += (
+                datetime.combine(date_obj, act.clock_out)
+                - datetime.combine(date_obj, act.clock_in)
+            ).total_seconds()
+
+    minimum_seconds = strtime_seconds(schedule.minimum_working_hour)
+
+    # 🔹 Grace
+    grace_secs = 0
+    if emp_shift.grace_time_id and emp_shift.grace_time_id.allowed_clock_in:
+        grace_secs = emp_shift.grace_time_id.allowed_time_in_secs
+
+    is_late = False
+    is_early = False
+
+    if first_in:
+        if (
+            strtime_seconds(first_in.strftime("%H:%M"))
+            > strtime_seconds(schedule.start_time.strftime("%H:%M")) + grace_secs
+        ):
+            is_late = True
+
+    if last_out:
+        if (
+            strtime_seconds(last_out.strftime("%H:%M"))
+            < strtime_seconds(schedule.end_time.strftime("%H:%M")) - 3600
+        ):
+            is_early = True
+
+    # ✅ FINAL DECISION
+    if worked_seconds >= minimum_seconds:
+        return "present"
+
+    if worked_seconds >= 480:  # 8 min rule
+        return "present"
+
+    if is_late or is_early:
+        return "absent"
+
+    return "absent"
+
+
+# @login_required
+# def calendar_work_records_change_month(request):
+#     print("--- Debug: Starting calendar_work_records_change_month ---")
+#     calendar.setfirstweekday(calendar.SUNDAY)
+
+#     month_str = request.GET.get("month", f"{date.today().year}-{date.today().month:02d}")
+#     print(f"DEBUG: Month string received: {month_str}")
+
+#     try:
+#         year, month = map(int, month_str.split("-"))
+#     except ValueError:
+#         year, month = date.today().year, date.today().month
+#     print(f"DEBUG: Calculated Year: {year}, Month: {month}")
+
+#     ignore_company_scope = bool(
+#         getattr(request, "user", None)
+#         and request.user.is_authenticated
+#         and (request.user.is_superuser or request.user.is_staff)
+#     )
+
+#     def _qs(model_cls):
+#         manager = getattr(model_cls, "objects", None)
+#         if ignore_company_scope and manager is not None and hasattr(manager, "entire"):
+#             return manager.entire()
+#         return manager.all()
+
+#     employees = [request.user.employee_get]
+#     employee = employees[0]
+#     print(f"DEBUG: Processing Employee: {employee.id}")
+
+#     cal = calendar.monthcalendar(year, month)
+#     attendance_data = []
+#     month_dates = [date(year, month, d) for week in cal for d in week if d != 0]
+
+
+#     shift = getattr(employee, 'shift', None)
+#     print(f"DEBUG: Employee Shift: {shift}")
+
+#     working_days_names = []
+#     if shift:
+#         working_days_names = list(EmployeeShiftSchedule.objects.filter(
+#             shift_id=shift
+#         ).values_list('day__day', flat=True))
+#     print(f"DEBUG: Scheduled Working Days for this Shift: {working_days_names}")
+
+#     # 1. FETCH IRREGULAR DATA
+#     from attendance.models import AttendanceLateComeEarlyOut, Attendance, WorkRecords, AttendanceActivity
+#     from base.models import Holidays
+#     from datetime import timedelta, date as datetime_date, datetime
+
+#     irregular_qs = AttendanceLateComeEarlyOut.objects.filter(
+#         employee_id=employee,
+#         attendance_id__attendance_date__in=month_dates
+#     ).values_list("attendance_id__attendance_date", flat=True)
+#     irregular_dates_set = set(irregular_qs)
+
+#     # ---------------- EFFECTIVE START DATE ----------------
+#     # Finds the date when attendance activity first started
+#     first_attendance_date = (
+#         Attendance.objects
+#         .filter(employee_id=employee)
+#         .order_by("attendance_date")
+#         .values_list("attendance_date", flat=True)
+#         .first()
+#     )
+#     effective_start_date = first_attendance_date
+#     print(f"DEBUG: Effective Start Date (First Activity): {effective_start_date}")
+
+#     # ---------------- ATTENDANCE RECORDS (NEW) ----------------
+#     attendance_qs_month = Attendance.objects.filter(
+#         employee_id=employee,
+#         attendance_date__in=month_dates
+#     )
+#     attendance_dict = {att.attendance_date: att for att in attendance_qs_month}
+
+#     # ---------------- WORK RECORDS ----------------
+#     work_records = _qs(WorkRecords).filter(
+#         date__in=month_dates,
+#         employee_id__in=employees
+#     )
+#     wr_dict = {(wr.employee_id.id, wr.date): wr for wr in work_records}
+
+#     # 2. FETCH HOLIDAYS
+#     from django.db.models import Q
+#     all_holidays = _qs(Holidays).filter(
+#         Q(start_date__lte=max(month_dates, default=date.today()))
+#         & Q(end_date__gte=min(month_dates, default=date.today()))
+#     )
+#     holiday_dates_set = set()
+#     for hol in all_holidays:
+#         day_ptr = max(hol.start_date, month_dates[0])
+#         end_ptr = min(hol.end_date or hol.start_date, month_dates[-1])
+#         while day_ptr <= end_ptr:
+#             holiday_dates_set.add(day_ptr)
+#             day_ptr += timedelta(days=1)
+
+#     # 4. FETCH LEAVES
+#     from django.apps import apps
+#     approved_leaves = {}
+#     if apps.is_installed("leave"):
+#         from leave.models import LeaveRequest
+#         leave_requests = _qs(LeaveRequest).filter(employee_id=employee, status="approved")
+#         for leave_req in leave_requests:
+#             for leave_date in leave_req.requested_dates():
+#                 if leave_date in month_dates:
+#                     is_half = (
+#                         (leave_req.start_date == leave_date and leave_req.start_date_breakdown in ["first_half", "second_half"]) or
+#                         (leave_req.end_date == leave_date and leave_req.end_date_breakdown in ["first_half", "second_half"])
+#                     )
+#                     approved_leaves[leave_date] = {"is_half_day": is_half}
+
+#     has_clocked_in_dates = set(
+#         AttendanceActivity.objects.filter(
+#             employee_id=employee,
+#             attendance_date__in=month_dates,
+#             clock_in__isnull=False
+#         ).values_list("attendance_date", flat=True)
+#     )
+
+#     # ================= MAIN LOOP =================
+#     today = date.today()
+#     for week_index, week in enumerate(cal):
+#         for weekday_index, d in enumerate(week):
+#             if d == 0:
+#                 attendance_data.append({
+#                     "day": "", "date": "", "weekday": weekday_index,
+#                     "day_name": "", "week": week_index, "status": "empty",
+#                 })
+#                 continue
+
+#             date_obj = date(year, month, d)
+#             day_name_full = date_obj.strftime("%A") 
+#             is_irregular = date_obj in irregular_dates_set
+
+#             # --- NEW LOGIC: JAB SE ATTENDANCE START HUE HE ---
+#             if effective_start_date and date_obj < effective_start_date:
+#                 print(f"DEBUG: Date {date_obj} is before start date. Status: empty")
+#                 attendance_data.append({
+#                     "day": d, "date": date_obj, "weekday": weekday_index,
+#                     "day_name": date_obj.strftime("%a"), "week": week_index, "status": "empty",
+#                 })
+#                 continue
+            
+#             # Start logic with Shift check
+#             is_working_day = day_name_full in working_days_names
+#             day_status = "absent" if is_working_day else "weekly-off"
+#             print(f"DEBUG: Date: {date_obj} | Day: {day_name_full} | Initial Status: {day_status}")
+
+#             if date_obj in holiday_dates_set:
+#                 day_status = "present" if date_obj in has_clocked_in_dates else "public-holiday"
+#                 print(f"   -> Overridden by Holiday. Status: {day_status}")
+#             else:
+#                 wr = wr_dict.get((employee.id, date_obj))
+#                 leave_info = approved_leaves.get(date_obj)
+                
+#                 if wr:
+#                     status_map = {"FDP": "present", "HDP": "half-day", "ABS": "absent", "WOF": "weekly-off"}
+#                     day_status = status_map.get(wr.work_record_type, "absent")
+#                 elif leave_info:
+#                     day_status = "leave-half" if leave_info["is_half_day"] else "leave-full"
+#                 elif date_obj > today:
+#                     day_status = "empty"
+
+#             if is_irregular and day_status in ["present", "half-day", "absent"]:
+#                 day_status = "irregular"
+
+#             attendance_data.append({
+#                 "day": d, 
+#                 "date": date_obj, 
+#                 "weekday": weekday_index,
+#                 "day_name": date_obj.strftime("%a"), 
+#                 "week": week_index,
+#                 "status": day_status,
+#             })
+
+#     print(f"--- Debug: Finished. Total records: {len(attendance_data)} ---")
+#     return render(
+#         request,
+#         "partials/calendar_days.html",
+#         {
+#             "attendance_data": attendance_data,
+#             "weekdays": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+#         },
+#     )
+
+
+@login_required
+def calendar_work_records_change_month(request):
+    calendar.setfirstweekday(calendar.SUNDAY)
+
+    month_str = request.GET.get("month", f"{date.today().year}-{date.today().month:02d}")
+    try:
+        year, month = map(int, month_str.split("-"))
+    except ValueError:
+        year, month = date.today().year, date.today().month
+
+    ignore_company_scope = bool(
+        getattr(request, "user", None)
+        and request.user.is_authenticated
+        and (request.user.is_superuser or request.user.is_staff)
+    )
+
+    def _qs(model_cls):
+        manager = getattr(model_cls, "objects", None)
+        if ignore_company_scope and manager is not None and hasattr(manager, "entire"):
+            return manager.entire()
+        return manager.all()
+
+    employees = [request.user.employee_get]
+    employee = employees[0]
+
+    cal = calendar.monthcalendar(year, month)
+    attendance_data = []
+    month_dates = [date(year, month, d) for week in cal for d in week if d != 0]
+
+    # Get shift object using the same method as build_month_overview
+    shift_obj = employee.get_shift() if employee else None
+
+    irregular_qs = AttendanceLateComeEarlyOut.objects.filter(
+        employee_id=employee,
+        attendance_id__attendance_date__in=month_dates
+    ).values_list("attendance_id__attendance_date", flat=True)
+    irregular_dates_set = set(irregular_qs)
+
+    # ---------------- EFFECTIVE START DATE ----------------
+    # Use first attendance date from Attendance objects (shows all attendance records)
+    # This ensures previous attendance data appears even after user clocks in
+    first_attendance_date = Attendance.objects.filter(employee_id=employee).order_by("attendance_date").values_list("attendance_date", flat=True).first()
+    effective_start_date = first_attendance_date
+
+    # ---------------- ATTENDANCE & WORK RECORDS ----------------
+    attendance_qs_month = Attendance.objects.filter(employee_id=employee, attendance_date__in=month_dates)
+    attendance_dict = {att.attendance_date: att for att in attendance_qs_month}
+    
+    # ---------------- REGULARIZED ATTENDANCES ----------------
+    # Get dates where attendance has been regularized (validated/approved)
+    regularized_dates_set = set()
+    for att_date, att_obj in attendance_dict.items():
+        if getattr(att_obj, 'attendance_validated', False) or getattr(att_obj, 'is_validate_request_approved', False):
+            regularized_dates_set.add(att_date)
+
+    work_records = _qs(WorkRecords).filter(date__in=month_dates, employee_id__in=employees)
+    wr_dict = {(wr.employee_id.id, wr.date): wr for wr in work_records}
+
+    # ---------------- HOLIDAYS & LEAVES ----------------
+    all_holidays = _qs(Holidays).filter(Q(start_date__lte=max(month_dates, default=date.today())) & Q(end_date__gte=min(month_dates, default=date.today())))
+    holiday_dates_set = set()
+    for hol in all_holidays:
+        day_ptr = max(hol.start_date, month_dates[0])
+        end_ptr = min(hol.end_date or hol.start_date, month_dates[-1])
+        while day_ptr <= end_ptr:
+            holiday_dates_set.add(day_ptr)
+            day_ptr += timedelta(days=1)
+
+    from django.apps import apps
+    approved_leaves = {}
+    if apps.is_installed("leave"):
+        from leave.models import LeaveRequest
+        leave_requests = _qs(LeaveRequest).filter(employee_id=employee, status="approved")
+        for leave_req in leave_requests:
+            for leave_date in leave_req.requested_dates():
+                if leave_date in month_dates:
+                    is_half = ((leave_req.start_date == leave_date and leave_req.start_date_breakdown in ["first_half", "second_half"]) or (leave_req.end_date == leave_date and leave_req.end_date_breakdown in ["first_half", "second_half"]))
+                    approved_leaves[leave_date] = {"is_half_day": is_half}
+
+    has_clocked_in_dates = set(AttendanceActivity.objects.filter(employee_id=employee, attendance_date__in=month_dates, clock_in__isnull=False).values_list("attendance_date", flat=True))
+
+    # ================= MAIN LOOP =================
+    today = date.today()
+    for week_index, week in enumerate(cal):
+        for weekday_index, d in enumerate(week):
+            if d == 0:
+                attendance_data.append({"day": "", "date": "", "weekday": weekday_index, "day_name": "", "week": week_index, "status": "empty"})
+                continue
+
+            date_obj = date(year, month, d)
+            day_name_full = date_obj.strftime("%A") 
+            weekday_key = day_name_full.lower()
+            
+            # 1. EFFECTIVE START DATE CHECK
+            if effective_start_date and date_obj < effective_start_date:
+                attendance_data.append({"day": d, "date": date_obj, "weekday": weekday_index, "day_name": date_obj.strftime("%a"), "week": week_index, "status": "empty"})
+                continue
+
+            # 2. GET FLAGS
+            att_record = attendance_dict.get(date_obj)
+            wr = wr_dict.get((employee.id, date_obj))
+            
+            # ⭐ MCO LOGIC: Agar WorkRecord type 'MCO' hai ya direct field True hai
+            is_auto_clocked_out = (
+                (att_record and getattr(att_record, 'auto_clock_out', False)) or 
+                (wr and wr.work_record_type == "MCO")
+            )
+            
+            # Check if attendance is regularized
+            is_regularized = date_obj in regularized_dates_set
+            
+            # Only mark as irregular if not regularized
+            is_irregular = date_obj in irregular_dates_set and not is_regularized
+
+            # Default status based on Shift - Check if schedule exists for this weekday (same as build_month_overview)
+            schedule_exists = shift_obj and weekday_key in (
+                schedule.day.day.lower()
+                for schedule in shift_obj.employeeshiftschedule_set.select_related("day").all()
+            )
+            is_weekoff = shift_obj and not schedule_exists
+            day_status = "absent" if not is_weekoff else "weekly-off"
+
+            # 3. PRIORITY LOGIC
+            if date_obj in holiday_dates_set:
+                day_status = "present" if date_obj in has_clocked_in_dates else "public-holiday"
+            else:
+                leave_info = approved_leaves.get(date_obj)
+                
+                # ⭐ LEAVE PRIORITY: Check leave status first (highest priority after holidays)
+                if leave_info:
+                    day_status = "leave-half" if leave_info["is_half_day"] else "leave-full"
+                elif wr:
+                    # ⭐ Added "MCO": "absent" in the map
+                    status_map = {
+                        "FDP": "present", 
+                        "HDP": "half-day", 
+                        "ABS": "absent", 
+                        "WOF": "weekly-off",
+                        "MCO": "absent" 
+                    }
+                    day_status = status_map.get(wr.work_record_type, "absent")
+                    # ⭐ If regularized, convert half-day or absent to present
+                    if is_regularized and day_status in ["half-day", "absent"]:
+                        day_status = "present"
+                elif date_obj > today:
+                    day_status = "empty"
+                elif date_obj in has_clocked_in_dates:
+                    if is_auto_clocked_out:
+                        day_status = "absent"
+                    else:
+                        # ⭐ WEEK-OFF CHECK: No grace period on week-off days
+                        # On week-off days, apply standard attendance logic (present/absent/irregular)
+                        if is_weekoff:
+                            # Week-off: Use standard duration-based logic (no grace time)
+                            duration_val = getattr(att_record, 'attendance_duration', None)
+                            if duration_val:
+                                try:
+                                    total_seconds = duration_val.total_seconds() if hasattr(duration_val, 'total_seconds') else float(duration_val)
+                                    day_status = "present" if total_seconds >= 32400 else "absent"
+                                except: 
+                                    day_status = "present"
+                            else:
+                                day_status = "present"
+                        else:
+                            # ⭐ SHIFT COMPLETION WITH GRACE TIME CHECK (only for working days)
+                            shift_completed_with_grace = False
+                            if shift_obj and att_record and att_record.attendance_clock_in and att_record.attendance_clock_out:
+                                try:
+                                    from base.models import EmployeeShiftSchedule
+                                    day_schedule = EmployeeShiftSchedule.objects.filter(
+                                        shift_id=shift_obj,
+                                        day__day=weekday_key
+                                    ).first()
+                                    
+                                    if day_schedule and day_schedule.start_time and day_schedule.end_time:
+                                        # Get grace time from shift
+                                        grace_secs = 0
+                                        if shift_obj.grace_time_id and shift_obj.grace_time_id.allowed_clock_in:
+                                            grace_secs = shift_obj.grace_time_id.allowed_time_in_secs
+                                        
+                                        # Check clock-in is within grace time window
+                                        clock_in_time = att_record.attendance_clock_in
+                                        shift_start_time = day_schedule.start_time
+                                        clock_in_secs = strtime_seconds(clock_in_time.strftime("%H:%M"))
+                                        shift_start_secs = strtime_seconds(shift_start_time.strftime("%H:%M"))
+                                        grace_end_secs = shift_start_secs + grace_secs
+                                        
+                                        clock_in_within_grace = shift_start_secs <= clock_in_secs <= grace_end_secs
+                                        
+                                        # Check clock-out is >= shift end time
+                                        clock_out_time = att_record.attendance_clock_out
+                                        shift_end_time = day_schedule.end_time
+                                        clock_out_secs = strtime_seconds(clock_out_time.strftime("%H:%M"))
+                                        shift_end_secs = strtime_seconds(shift_end_time.strftime("%H:%M"))
+                                        
+                                        if clock_in_within_grace and clock_out_secs >= shift_end_secs:
+                                            shift_completed_with_grace = True
+                                except Exception:
+                                    pass
+                            
+                            if shift_completed_with_grace:
+                                day_status = "present"
+                            else:
+                                # Fall back to duration-based logic
+                                duration_val = getattr(att_record, 'attendance_duration', None)
+                                if duration_val:
+                                    try:
+                                        total_seconds = duration_val.total_seconds() if hasattr(duration_val, 'total_seconds') else float(duration_val)
+                                        day_status = "present" if total_seconds >= 32400 else "absent"
+                                    except: 
+                                        day_status = "present"
+                                else:
+                                    day_status = "present"
+                
+                elif date_obj <= today:
+                    # No attendance, no leave, no work record - check for weekoff (same as build_month_overview)
+                    if is_weekoff:
+                        day_status = "weekly-off"
+                    elif day_status not in ["weekly-off", "public-holiday", "leave-full", "leave-half"]:
+                        day_status = "absent"
+
+            # 4. FINAL SHIELD (Override everything if MCO/AutoClockOut, but preserve leave and weekoff status)
+            # ⭐ PRESERVE LEAVE STATUS: Don't override approved leave status
+            # ⭐ PRESERVE WEEKOFF STATUS: Don't override week off status
+            is_on_leave = day_status in ["leave-full", "leave-half"]
+            is_weekoff_status = day_status == "weekly-off"
+            
+            if is_auto_clocked_out:
+                day_status = "absent"
+            elif not is_on_leave and not is_weekoff_status:  # Only apply other overrides if not on leave and not weekoff
+                # ⭐ REGULARIZATION LOGIC: If attendance is regularized, show as "present"
+                if is_regularized:
+                    if att_record or date_obj in has_clocked_in_dates:
+                        day_status = "present"
+                else:
+                    # ⭐ GRACE PERIOD LOGIC: Check if clock-in is within grace time window
+                    # If within grace time, don't mark as irregular even if late/early out exists
+                    clock_in_within_grace = False
+                    if shift_obj and att_record and att_record.attendance_clock_in and not is_weekoff:
+                        try:
+                            from base.models import EmployeeShiftSchedule
+                            day_schedule = EmployeeShiftSchedule.objects.filter(
+                                shift_id=shift_obj,
+                                day__day=weekday_key
+                            ).first()
+                            
+                            if day_schedule and day_schedule.start_time:
+                                # Get grace time from shift
+                                grace_secs = 0
+                                if shift_obj.grace_time_id and shift_obj.grace_time_id.allowed_clock_in:
+                                    grace_secs = shift_obj.grace_time_id.allowed_time_in_secs
+                                
+                                # Check clock-in is within grace time window
+                                clock_in_time = att_record.attendance_clock_in
+                                shift_start_time = day_schedule.start_time
+                                clock_in_secs = strtime_seconds(clock_in_time.strftime("%H:%M"))
+                                shift_start_secs = strtime_seconds(shift_start_time.strftime("%H:%M"))
+                                grace_end_secs = shift_start_secs + grace_secs
+                                
+                                clock_in_within_grace = shift_start_secs <= clock_in_secs <= grace_end_secs
+                        except Exception:
+                            pass
+                    
+                    # Only apply irregular status if clock-in is NOT within grace period
+                    # OR if shift is not completed properly despite being within grace period
+                    if is_irregular and day_status in ["present", "half-day", "absent"]:
+                        if clock_in_within_grace:
+                            # Clock-in is within grace period, check if shift was completed
+                            if shift_obj and att_record and att_record.attendance_clock_out:
+                                try:
+                                    from base.models import EmployeeShiftSchedule
+                                    day_schedule = EmployeeShiftSchedule.objects.filter(
+                                        shift_id=shift_obj,
+                                        day__day=weekday_key
+                                    ).first()
+                                    
+                                    if day_schedule and day_schedule.end_time:
+                                        clock_out_time = att_record.attendance_clock_out
+                                        shift_end_time = day_schedule.end_time
+                                        clock_out_secs = strtime_seconds(clock_out_time.strftime("%H:%M"))
+                                        shift_end_secs = strtime_seconds(shift_end_time.strftime("%H:%M"))
+                                        
+                                        # If clock-out >= shift end time, mark as present (not irregular)
+                                        if clock_out_secs >= shift_end_secs:
+                                            day_status = "present"
+                                        else:
+                                            # Clock-in within grace but early out - keep as irregular
+                                            day_status = "irregular"
+                                    else:
+                                        # No shift end time - check duration
+                                        duration_val = getattr(att_record, 'attendance_duration', None)
+                                        if duration_val:
+                                            try:
+                                                total_seconds = duration_val.total_seconds() if hasattr(duration_val, 'total_seconds') else float(duration_val)
+                                                if total_seconds >= 32400:
+                                                    day_status = "present"
+                                                else:
+                                                    day_status = "irregular"
+                                            except:
+                                                day_status = "irregular"
+                                        else:
+                                            day_status = "irregular"
+                                except Exception:
+                                    day_status = "irregular"
+                            else:
+                                # Clock-in within grace but no clock-out - check duration
+                                duration_val = getattr(att_record, 'attendance_duration', None)
+                                if duration_val:
+                                    try:
+                                        total_seconds = duration_val.total_seconds() if hasattr(duration_val, 'total_seconds') else float(duration_val)
+                                        if total_seconds >= 32400:
+                                            day_status = "present"
+                                        else:
+                                            day_status = "irregular"
+                                    except:
+                                        day_status = "irregular"
+                                else:
+                                    day_status = "irregular"
+                        else:
+                            # Clock-in is AFTER grace period - mark as irregular
+                            day_status = "irregular"
+                    else:
+                        # No irregular flag, but check if clocked in
+                        if date_obj in has_clocked_in_dates and day_status == "absent":
+                            day_status = "present"
+
+            attendance_data.append({
+                "day": d, "date": date_obj, "weekday": weekday_index,
+                "day_name": date_obj.strftime("%a"), "week": week_index, "status": day_status,
+            })
+
+    return render(request, "partials/calendar_days.html", {"attendance_data": attendance_data, "weekdays": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]})
+
+
+
+@login_required
+def leave_records(request):
+    print("leave_records view called")
+    today = date.today()
+    previous_data = request.GET.urlencode()
+    context = {
+        "current_date": today,
+        "pd": previous_data,
+    }
+    return render(
+        request, "leaveCalendar/leave_record_view.html", context=context
+    )
+
+
+@login_required
+@hx_request_required
+def leave_records_change_month(request):
+    print("leave_records_change_month view called")
+    from attendance.methods.utils import monthly_leave_days
+    from base.methods import get_pagination
+    previous_data = request.GET.urlencode()
+    employee_filter_form = EmployeeFilter(request.GET or None)
+
+    employees = filtersubordinatesemployeemodel(
+        request, employee_filter_form.qs, "attendance.view_attendance"
+    )
+
+    month_str = request.GET.get("month", f"{date.today().year}-{date.today().month}")
+    try:
+        year, month = map(int, month_str.split("-"))
+    except ValueError:
+        year, month = date.today().year, date.today().month
+
+    employees = [request.user.employee_get] + list(employees)
+
+    month_dates = [
+        datetime(year, month, day).date()
+        for week in calendar.monthcalendar(year, month)
+        for day in week
+        if day
+    ]
+
+    # Query WorkRecords for the month
+    work_records = WorkRecords.objects.filter(
+        date__in=month_dates, employee_id__in=employees
+    ).select_related("employee_id", "shift_id", "attendance_id")
+
+    work_records_dict = {(wr.employee_id.id, wr.date): wr for wr in work_records}
+
+    # Also query approved LeaveRequests directly to ensure all leaves are shown
+    # This is a fallback in case WorkRecords weren't created for some reason
+    approved_leaves_dict = {}
+    if apps.is_installed("leave"):
+        from leave.models import LeaveRequest
+        
+        # Get joining dates for all employees
+        employee_joining_dates = {}
+        for emp in employees:
+            joining_date = None
+            work_info = getattr(emp, "employee_work_info", None)
+            if work_info:
+                joining_date = getattr(work_info, "date_joining", None)
+            
+            if not joining_date:
+                created_at = getattr(emp, "created_at", None)
+                if created_at:
+                    if isinstance(created_at, datetime):
+                        joining_date = created_at.date()
+                    else:
+                        joining_date = created_at
+                else:
+                    joining_date = date.today()
+            employee_joining_dates[emp.id] = joining_date
+        
+        # Query all approved leave requests for these employees
+        leave_requests = LeaveRequest.objects.filter(
+            employee_id__in=employees,
+            status="approved"
+        ).select_related("employee_id", "leave_type_id")
+        
+        # Create a dictionary mapping (employee_id, date) to leave info
+        for leave_req in leave_requests:
+            leave_dates = leave_req.requested_dates()
+            joining_date = employee_joining_dates.get(leave_req.employee_id.id, date.today())
+            
+            for leave_date in leave_dates:
+                # Only include dates in the current month and after joining date
+                if leave_date in month_dates and leave_date >= joining_date:
+                    key = (leave_req.employee_id.id, leave_date)
+                    # Only add if there's no WorkRecord for this date, or if WorkRecord doesn't have leave type
+                    if key not in work_records_dict or (
+                        work_records_dict[key].work_record_type not in ["LFD", "LHD"]
+                    ):
+                        # Determine if it's half-day or full-day
+                        is_half_day = (
+                            (leave_req.start_date == leave_date and leave_req.start_date_breakdown in ["first_half", "second_half"]) or
+                            (leave_req.end_date == leave_date and leave_req.end_date_breakdown in ["first_half", "second_half"])
+                        )
+                        
+                        # Create a mock WorkRecord-like object for leaves without WorkRecords
+                        class LeaveWorkRecord:
+                            def __init__(self, employee, date, leave_request, is_half_day):
+                                self.employee_id = employee
+                                self.date = date
+                                self.leave_request_id = leave_request
+                                self.work_record_type = "LHD" if is_half_day else "LFD"
+                                self.is_leave_record = True
+                                self.title_message = f"{leave_request.leave_type_id.name} - {leave_request.description[:50]}"
+                        
+                        approved_leaves_dict[key] = LeaveWorkRecord(
+                            leave_req.employee_id,
+                            leave_date,
+                            leave_req,
+                            is_half_day
+                        )
+
+    # Merge WorkRecords and LeaveRequests
+    # WorkRecords take priority, but if a date has a leave request and no WorkRecord (or WorkRecord without leave type), use the leave
+    combined_records_dict = work_records_dict.copy()
+    for key, leave_record in approved_leaves_dict.items():
+        if key not in combined_records_dict:
+            combined_records_dict[key] = leave_record
+        elif combined_records_dict[key].work_record_type not in ["LFD", "LHD"]:
+            # WorkRecord exists but doesn't have leave type - replace with leave record
+            combined_records_dict[key] = leave_record
+
+    data = {
+        employee: [
+            combined_records_dict.get((employee.id, current_date))
+            for current_date in month_dates
+        ]
+        for employee in employees
+    }
+
+    paginator = Paginator(list(data.items()), get_pagination())
+    page = paginator.get_page(request.GET.get("page"))
+
+    context = {
+        "current_month_dates_list": month_dates,
+        "leave_dates": monthly_leave_days(month, year),
+        "data": page,
+        "pd": previous_data,
+        "current_date": date.today(),
+        "f": employee_filter_form,
+    }
+
+    return render(request, "leaveCalendar/leave_record_list.html", context)
 
 
 @login_required
@@ -1750,16 +3298,25 @@ def company_create(request):
     """
     This method render template and form to create company and save if the form is valid
     """
+    # सुनिश्चित करें कि CompanyForm यहाँ इम्पोर्टेड और इस्तेमाल हो रहा है
+    form = CompanyForm() 
+    companies = Company.objects.all() # या अपनी ज़रूरत के अनुसार फ़िल्टर करें
 
-    form = CompanyForm()
-    companies = Company.objects.all()
     if request.method == "POST":
-        form = CompanyForm(request.POST, request.FILES)
+        # अगर आप CompanyForm में parent_company फ़ील्ड के लिए विशेष QuerySet फ़िल्टरिंग कर रहे हैं,
+        # तो फॉर्म को `instance=None` के साथ इंस्टेंशिएट करना सुनिश्चित करें
+        form = CompanyForm(request.POST, request.FILES) 
 
         if form.is_valid():
-            form.save()
-
-            messages.success(request, _("Company has been created successfully!"))
+            new_company = form.save()
+            
+            # Subcompany/Company के लिए संदेश तर्क
+            if new_company.parent_company:
+                messages.success(request, _(f"Subcompany '{new_company.company}' created under '{new_company.parent_company.company}' successfully!"))
+            else:
+                messages.success(request, _("Company has been created successfully!"))
+            
+            # HTMX reload के लिए
             return HttpResponse("<script>window.location.reload()</script>")
 
     return render(
@@ -1769,19 +3326,76 @@ def company_create(request):
     )
 
 
+
+
 @login_required
 @permission_required("base.view_company")
 def company_view(request):
-    """
-    This method used to view created companies
-    """
-    companies = Company.objects.all()
+    user = request.user
+    visible_ids = set()
+    # --- 1. Assigned Company & Branches Logic ---
+    employee = getattr(user, "employee_get", None)
+    assigned_company = None
+    
+    if employee:
+        assigned_company = employee.get_company()
+  
+    else:
+        assigned_company = getattr(user, "company", None)
+
+    if assigned_company:
+        visible_ids.add(assigned_company.id)
+        # Branches include karna
+        descendant_ids = Company._get_descendant_company_ids(assigned_company.id)
+        visible_ids.update(descendant_ids)
+    # --- 2. Explicit Access Rules Logic ---
+    access_rule = CompanyAccessControl.objects.filter(user=user).first()
+    if access_rule:
+        base_companies = access_rule.companies.all()
+        for base_comp in base_companies:
+            visible_ids.add(base_comp.id)
+            visible_ids.update(Company._get_descendant_company_ids(base_comp.id))
+       
+    # --- 3. Final Queryset Filtering ---
+    if user.is_superuser:
+        print("DEBUG: User is Superuser. Showing ALL.")
+        company_qs = Company.objects.all().select_related("parent_company")
+    else:
+        if visible_ids:
+            print(f"DEBUG: Filtering by IDs: {visible_ids}")
+            company_qs = Company.objects.filter(id__in=visible_ids).select_related("parent_company")
+        else:
+            print("DEBUG: No IDs found. Empty list.")
+            company_qs = Company.objects.none()
+
+    # --- 4. Sub-company Permission Filter ---
+    can_view_subcompanies = user.has_perm("base.view_subcompany")
+    if not can_view_subcompanies and not user.is_superuser:
+        print("DEBUG: Filtering out sub-companies (no perm)")
+        company_qs = company_qs.filter(parent_company__isnull=True)
+
+    # Force evaluation and fix the Print Error
+    companies = list(company_qs)
+    
     return render(
         request,
         "base/company/company.html",
         {"companies": companies, "model": Company()},
     )
 
+
+@login_required
+@permission_required("base.show_company")
+def company_show(request):
+    """
+    This method used to view created companies
+    """
+    companies = Company.objects.all()
+    return render(
+        request,
+        "base/company/showcompany.html",
+        {"companies": companies, "model": Company()},
+    )
 
 @login_required
 @hx_request_required
@@ -3734,7 +5348,7 @@ def work_type_request(request):
         "base.add_worktyperequest",
     )
     form = include_employee_instance(request, form)
-
+ 
     f = WorkTypeRequestFilter()
     context = {"f": f, "pd": previous_data}
     context["close_hx_url"], context["close_hx_target"] = handle_wtr_close_hx_url(
@@ -3749,37 +5363,70 @@ def work_type_request(request):
         )
         form = include_employee_instance(request, form)
         if form.is_valid():
-            instance = form.save()
-            try:
-                notify.send(
-                    instance.employee_id,
-                    recipient=(
-                        instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id
-                    ),
-                    verb=f"You have new work type request to \
-                            validate for {instance.employee_id}",
-                    verb_ar=f"لديك طلب نوع وظيفة جديد للتحقق من \
-                            {instance.employee_id}",
-                    verb_de=f"Sie haben eine neue Arbeitstypanfrage zur \
-                            Validierung für {instance.employee_id}",
-                    verb_es=f"Tiene una nueva solicitud de tipo de trabajo para \
-                            validar para {instance.employee_id}",
-                    verb_fr=f"Vous avez une nouvelle demande de type de travail\
-                            à valider pour {instance.employee_id}",
-                    icon="information",
-                    redirect=reverse("work-type-request-view") + f"?id={instance.id}",
-                )
-            except Exception as error:
-                pass
+            employees = form.cleaned_data.get("selected_employees")
+            created_instances = []
+            # Save the base form once without committing to DB
+            base_instance = form.save(commit=False)            
+            for emp in employees:
+                # Create a shallow copy instead of deepcopy
+                instance = copy.copy(base_instance)
+                instance.pk = None  # force new insert
+                instance.employee_id = emp
+                if not instance.approved:
+                    if hasattr(emp, "employee_work_info"):
+                        instance.previous_work_type_id = emp.employee_work_info.work_type_id
+                        if instance.is_permanent_work_type:
+                            instance.requested_till = None
+                instance.save()
+                created_instances.append(instance)
+                try:
+                    notify.send(
+                        instance.employee_id,
+                        recipient=(
+                            instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id
+                        ),
+                        verb=f"You have new work type request to \
+                                validate for {instance.employee_id}",
+                        verb_ar=f"لديك طلب نوع وظيفة جديد للتحقق من \
+                                {instance.employee_id}",
+                        verb_de=f"Sie haben eine neue Arbeitstypanfrage zur \
+                                Validierung für {instance.employee_id}",
+                        verb_es=f"Tiene una nueva solicitud de tipo de trabajo para \
+                                validar para {instance.employee_id}",
+                        verb_fr=f"Vous avez une nouvelle demande de type de travail\
+                                à valider pour {instance.employee_id}",
+                        icon="information",
+                        redirect=reverse("work-type-request-view") + f"?id={instance.id}",
+                    )
+                except Exception as error:
+                    pass
             messages.success(request, _("Work type request added."))
             work_type_requests = WorkTypeRequest.objects.all()
-            if len(work_type_requests) == 1:
-                return HttpResponse("<script>window.location.reload()</script>")
-            form = WorkTypeRequestForm()
-    context["form"] = form
-    return render(request, "work_type_request/request_form.html", context=context)
-
-
+         
+            response = render(
+                request,
+                "work_type_request/request_form.html",
+                {"form": WorkTypeRequestForm(), "f": f},
+            )
+            return HttpResponse(
+                response.content.decode("utf-8") + "<script>location.reload();</script>"
+            )
+ 
+        # Invalid form: render again
+        response = render(
+            request,
+            "work_type_request/request_form.html",
+            {"form": WorkTypeRequestForm(), "f": f},
+        )
+        return response
+ 
+    # GET request
+    return render(
+        request,
+        "work_type_request/request_form.html",
+        {"form": WorkTypeRequestForm(), "f": f},
+    )
+ 
 def handle_wtr_redirect(request, work_type_request):
     hx_request = request.META.get("HTTP_HX_REQUEST") == "true"
     if not hx_request:
@@ -4152,61 +5799,89 @@ def work_type_request_bulk_delete(request):
         result = True
     return JsonResponse({"result": result})
 
-
 @login_required
 @hx_request_required
 def shift_request(request):
     """
-    This method is used to create shift request
+    This method is used to create shift request (supports multiple employees now)
     """
-    form = ShiftRequestForm()
     employee = request.user.employee_get.id
     if request.GET.get("emp_id"):
         employee = request.GET.get("emp_id")
-
+ 
     form = ShiftRequestForm(initial={"employee_id": employee})
-    form = choosesubordinates(
-        request,
-        form,
-        "base.add_shiftrequest",
-    )
+    form = choosesubordinates(request, form, "base.add_shiftrequest")
     form = include_employee_instance(request, form)
     f = ShiftRequestFilter()
+ 
     if request.method == "POST":
         form = ShiftRequestForm(request.POST)
         form = choosesubordinates(request, form, "base.add_shiftrequest")
         form = include_employee_instance(request, form)
+ 
+        if form.is_valid():
+            employees = form.cleaned_data.get("selected_employees")
+            created_instances = []
+            # Save the base form once without committing to DB
+            base_instance = form.save(commit=False)
+            for emp in employees:
+                # Create a shallow copy instead of deepcopy
+                instance = copy.copy(base_instance)
+                instance.pk = None  # force new insert
+                instance.employee_id = emp
+ 
+                if not instance.approved:
+                    if hasattr(emp, "employee_work_info"):
+                        instance.previous_shift_id = emp.employee_work_info.shift_id
+                        if instance.is_permanent_shift:
+                            instance.requested_till = None
+ 
+                instance.save()
+                created_instances.append(instance)
+ 
+                # Send notification for each
+                try:
+                    notify.send(
+                        emp,
+                        recipient=(
+                            emp.employee_work_info.reporting_manager_id.employee_user_id
+                            if hasattr(emp, "employee_work_info")
+                            else None
+                        ),
+                        verb=f"You have new shift request to approve for {emp}",
+                        verb_ar=f"لديك طلب وردية جديد للموافقة عليه لـ {emp}",
+                        verb_de=f"Sie müssen eine neue Schichtanfrage für {emp} genehmigen",
+                        verb_es=f"Tiene una nueva solicitud de turno para aprobar para {emp}",
+                        verb_fr=f"Vous avez une nouvelle demande de quart de travail à approuver pour {emp}",
+                        icon="information",
+                        redirect=reverse("shift-request-view"),
+                    )
+                except Exception:
+                    pass
+ 
+            messages.success(
+                request,
+                _("Shift request added successfully for selected employees"),
+            )
+ 
+            response = render(
+                request,
+                "shift_request/htmx/shift_request_create_form.html",
+                {"form": ShiftRequestForm(), "f": f},
+            )
+            return HttpResponse(
+                response.content.decode("utf-8") + "<script>location.reload();</script>"
+            )
+ 
+        # Invalid form: render again
         response = render(
             request,
             "shift_request/htmx/shift_request_create_form.html",
             {"form": form, "f": f},
         )
-        if form.is_valid():
-            instance = form.save()
-            try:
-                notify.send(
-                    instance.employee_id,
-                    recipient=(
-                        instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id
-                    ),
-                    verb=f"You have new shift request to approve \
-                        for {instance.employee_id}",
-                    verb_ar=f"لديك طلب وردية جديد للموافقة عليه لـ {instance.employee_id}",
-                    verb_de=f"Sie müssen eine neue Schichtanfrage \
-                        für {instance.employee_id} genehmigen",
-                    verb_es=f"Tiene una nueva solicitud de turno para \
-                        aprobar para {instance.employee_id}",
-                    verb_fr=f"Vous avez une nouvelle demande de quart de\
-                        travail à approuver pour {instance.employee_id}",
-                    icon="information",
-                    redirect=reverse("shift-request-view") + f"?id={instance.id}",
-                )
-            except Exception as e:
-                pass
-            messages.success(request, _("Shift request added"))
-            return HttpResponse(
-                response.content.decode("utf-8") + "<script>location.reload();</script>"
-            )
+        return response
+ 
+    # GET request
     return render(
         request,
         "shift_request/htmx/shift_request_create_form.html",
@@ -4674,13 +6349,13 @@ def shift_request_cancel(request, id):
     This method is used to update or cancel shift request
     args:
         id : shift request id
-
     """
 
     shift_request = ShiftRequest.find(id)
     if not shift_request:
         messages.error(request, _("Shift request not found."))
         return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/"))
+
     if not (
         is_reportingmanger(request, shift_request)
         or request.user.has_perm("base.cancel_shiftrequest")
@@ -4689,9 +6364,14 @@ def shift_request_cancel(request, id):
     ):
         messages.error(request, _("You don't have permission"))
         return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/"))
+
     today_date = datetime.today().date()
+
+    # ✅ Added safe check for NoneType values
     if (
         shift_request.approved
+        and shift_request.requested_date is not None
+        and shift_request.requested_till is not None
         and shift_request.requested_date <= today_date <= shift_request.requested_till
         and not shift_request.is_permanent_shift
     ):
@@ -4699,8 +6379,10 @@ def shift_request_cancel(request, id):
             shift_request.previous_shift_id
         )
         shift_request.employee_id.employee_work_info.save()
+
     shift_request.canceled = True
     shift_request.approved = False
+
     work_info = EmployeeWorkInformation.objects.filter(
         employee_id=shift_request.employee_id
     )
@@ -4708,13 +6390,17 @@ def shift_request_cancel(request, id):
         shift_request.employee_id.employee_work_info.shift_id = (
             shift_request.previous_shift_id
         )
+
     if shift_request.reallocate_to and work_info.exists():
         shift_request.reallocate_to.employee_work_info.shift_id = shift_request.shift_id
         shift_request.reallocate_to.employee_work_info.save()
+
     if work_info.exists():
         shift_request.employee_id.employee_work_info.save()
+
     shift_request.save()
     messages.success(request, _("Shift request rejected"))
+
     notify.send(
         request.user.employee_get,
         recipient=shift_request.employee_id.employee_user_id,
@@ -4726,6 +6412,7 @@ def shift_request_cancel(request, id):
         redirect=reverse("shift-request-view") + f"?id={shift_request.id}",
         icon="close",
     )
+
     if shift_request.reallocate_to:
         notify.send(
             request.user.employee_get,
@@ -4738,7 +6425,9 @@ def shift_request_cancel(request, id):
             redirect=reverse("shift-request-view") + f"?id={shift_request.id}",
             icon="close",
         )
+
     return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/"))
+
 
 
 @login_required
@@ -5088,6 +6777,238 @@ def notifications(request):
         "notification/notification_items.html",
         {"notifications": all_notifications},
     )
+
+
+_DASHBOARD_NOTIFICATION_LIMIT = 6
+
+
+def _extract_dashboard_notification_object_id(redirect_url):
+    """
+    Retrieve the referenced object id from the notification redirect url.
+    Supports both query param (?id=) and trailing /<id>/ patterns.
+    """
+    if not redirect_url:
+        return None
+    parsed = urlparse(redirect_url)
+    query_params = parse_qs(parsed.query)
+    candidate = query_params.get("id") or query_params.get("attendance_id")
+    if candidate:
+        value = candidate[0]
+        if value.isdigit():
+            return int(value)
+    path_segments = (parsed.path or "").rstrip("/").split("/")
+    if path_segments:
+        last_segment = path_segments[-1]
+        if last_segment.isdigit():
+            return int(last_segment)
+    return None
+
+
+def _get_employee_avatar(employee):
+    """
+    Returns an absolute avatar url for rendering inside dashboard notifications.
+    """
+    if not employee:
+        return static("images/ui/default_avatar.jpg")
+    avatar_getter = getattr(employee, "get_avatar", None)
+    if callable(avatar_getter):
+        return avatar_getter()
+    avatar = avatar_getter
+    return avatar or static("images/ui/default_avatar.jpg")
+
+
+def _normalize_notification_timestamp(value):
+    """
+    Ensure timestamps rendered inside dashboard notifications are timezone-aware datetimes.
+    """
+    if not value:
+        return timezone.now()
+    if isinstance(value, datetime):
+        return timezone.make_aware(value) if timezone.is_naive(value) else value
+    if isinstance(value, date):
+        combined = datetime.combine(value, datetime.min.time())
+        return timezone.make_aware(combined)
+    return timezone.now()
+
+
+def _build_leave_notification_payload(leave_request, notification=None):
+    if not leave_request or leave_request.status != "requested":
+        return None
+    employee = leave_request.employee_id
+    instances_param = json.dumps([leave_request.id])
+    view_query = urlencode({"instances_ids": instances_param, "dashboard": "true"})
+    timestamp = _normalize_notification_timestamp(
+        getattr(notification, "timestamp", None)
+        or getattr(leave_request, "requested_date", None)
+    )
+    return {
+        "notification_id": getattr(notification, "id", f"leave-{leave_request.id}"),
+        "object_id": leave_request.id,
+        "type": "leave",
+        "employee_name": str(employee),
+        "avatar": _get_employee_avatar(employee),
+        "message": _("has applied for %(leave_type)s") % {
+            "leave_type": leave_request.leave_type_id
+        },
+        "comment": leave_request.description,
+        "meta": [
+            _("%(days)s day(s)") % {"days": leave_request.requested_days}
+            if leave_request.requested_days
+            else "",
+            _("%(start)s → %(end)s")
+            % {
+                "start": leave_request.start_date,
+                "end": leave_request.end_date or leave_request.start_date,
+            },
+        ],
+        "timestamp": timestamp,
+        "approve_url": reverse("request-approve", kwargs={"id": leave_request.id}),
+        "reject_url": reverse("request-cancel", kwargs={"id": leave_request.id}),
+        "view_url": reverse("one-request-view", kwargs={"id": leave_request.id})
+        + f"?{view_query}",
+        "label": _("Leave Request"),
+        "open_in_modal": True,
+    }
+
+
+def _build_attendance_notification_payload(attendance_instance, notification=None):
+    if not attendance_instance or not attendance_instance.is_validate_request:
+        return None
+
+    employee = attendance_instance.employee_id
+
+    timestamp = _normalize_notification_timestamp(
+        getattr(notification, "timestamp", None)
+        or getattr(attendance_instance, "created_at", None)
+        or attendance_instance.attendance_date
+    )
+
+    attendance_id = int(attendance_instance.id)
+
+    return {
+        "notification_id": getattr(notification, "id", f"attendance-{attendance_id}"),
+        "object_id": attendance_id,
+        "type": "attendance",
+        "employee_name": str(employee),
+        "avatar": _get_employee_avatar(employee),
+        "message": _("has requested attendance regularization"),
+        "comment": attendance_instance.request_description,
+        "meta": [
+            _("Attendance Date: %(date)s") % {"date": attendance_instance.attendance_date},
+            _("In: %(in_time)s") % {"in_time": attendance_instance.attendance_clock_in}
+            if attendance_instance.attendance_clock_in else "",
+            _("Out: %(out_time)s") % {"out_time": attendance_instance.attendance_clock_out}
+            if attendance_instance.attendance_clock_out else "",
+        ],
+        "timestamp": timestamp,
+        "approve_url": reverse(
+            "approve-validate-attendance-request",
+            kwargs={"attendance_id": attendance_id},
+        ),
+        "reject_url": reverse(
+            "cancel-validate-attendance-request",
+            kwargs={"attendance_id": attendance_id},
+        ),
+        "view_url": (
+            reverse("user-request-one-view", kwargs={"id": attendance_id})
+            + f"?{urlencode({'dashboard': 'true'})}"
+        ),
+        "label": _("Attendance Regularization"),
+        "open_in_modal": True,
+    }
+
+@login_required
+def dashboard_notifications(request):
+    """
+    Render actionable notifications (leave + attendance) for the dashboard card.
+    """
+    unread_notifications = (
+        request.user.notifications.unread().order_by("-timestamp")[:50]
+    )
+    actionable_notifications = []
+    seen_objects = set()
+
+    def _append_payload(payload):
+        if not payload:
+            return
+        key = (payload.get("type"), payload.get("object_id"))
+        if key in seen_objects:
+            return
+        actionable_notifications.append(payload)
+        seen_objects.add(key)
+
+    for notification in unread_notifications:
+        redirect_url = getattr(notification, "data", {}).get("redirect")
+        if not redirect_url:
+            continue
+        object_id = _extract_dashboard_notification_object_id(redirect_url)
+        if not object_id:
+            continue
+
+        normalized_path = (urlparse(redirect_url).path or "").lstrip("/")
+
+        if normalized_path.startswith("leave/"):
+            try:
+                leave_request = LeaveRequest.objects.select_related(
+                    "employee_id", "leave_type_id"
+                ).get(pk=object_id)
+            except LeaveRequest.DoesNotExist:
+                continue
+            _append_payload(
+                _build_leave_notification_payload(leave_request, notification)
+            )
+        elif normalized_path.startswith("attendance/"):
+            try:
+                attendance_instance = Attendance.objects.select_related(
+                    "employee_id"
+                ).get(pk=object_id)
+            except Attendance.DoesNotExist:
+                continue
+            _append_payload(
+                _build_attendance_notification_payload(attendance_instance, notification)
+            )
+
+        if len(actionable_notifications) >= _DASHBOARD_NOTIFICATION_LIMIT:
+            break
+
+    remaining_slots = _DASHBOARD_NOTIFICATION_LIMIT - len(actionable_notifications)
+
+    if remaining_slots > 0:
+        pending_leave = (
+            LeaveRequest.objects.select_related("employee_id", "leave_type_id")
+            .filter(status="requested")
+            .order_by("-requested_date")[:remaining_slots]
+        )
+        for leave_instance in pending_leave:
+            _append_payload(_build_leave_notification_payload(leave_instance))
+            if len(actionable_notifications) >= _DASHBOARD_NOTIFICATION_LIMIT:
+                break
+
+    if len(actionable_notifications) < _DASHBOARD_NOTIFICATION_LIMIT:
+        pending_attendance = (
+            Attendance.objects.select_related("employee_id")
+            .filter(is_validate_request=True)
+            .order_by("-attendance_date")[
+                : _DASHBOARD_NOTIFICATION_LIMIT - len(actionable_notifications)
+            ]
+        )
+        for attendance_instance in pending_attendance:
+            _append_payload(
+                _build_attendance_notification_payload(attendance_instance)
+            )
+            if len(actionable_notifications) >= _DASHBOARD_NOTIFICATION_LIMIT:
+                break
+
+    actionable_notifications.sort(
+        key=lambda item: item.get("timestamp") or timezone.now(), reverse=True
+    )
+
+    return render(
+        request,
+        "notification/dashboard_notification_items.html",
+        {"actionable_notifications": actionable_notifications},
+    )
+
 
 
 @login_required
@@ -6864,7 +8785,7 @@ def generate_error_report(error_list, error_data, file_name):
         del error_data[key]
 
     data_frame = pd.DataFrame(error_data, columns=error_data.keys())
-    styled_data_frame = data_frame.style.applymap(
+    styled_data_frame = data_frame.style.map(
         lambda x: "text-align: center", subset=pd.IndexSlice[:, :]
     )
 
@@ -6915,28 +8836,45 @@ def get_upcoming_holidays(request):
 def holiday_creation(request):
     """
     function used to create holidays.
-
-    Parameters:
-    request (HttpRequest): The HTTP request object.
-
-    Returns:
-    GET : return holiday creation form template
-    POST : return holiday view template
     """
 
+    print("➡️ holiday_creation() CALLED")   # Debug
+    print("➡️ Request method:", request.method)
+
     previous_data = request.GET.urlencode()
+    print("➡️ Previous data:", previous_data)
+
     form = HolidayForm()
+
     if request.method == "POST":
+        print("➡️ POST data received:", request.POST)
+
         form = HolidayForm(request.POST)
+
         if form.is_valid():
-            form.save()
-            form = HolidayForm()
+            print("✔️ Form is valid.")
+            saved_obj = form.save()
+            print("✔️ Holiday saved:", saved_obj)
+
             messages.success(request, _("New holiday created successfully.."))
-            if Holidays.objects.filter().count() == 1:
+
+            total_holidays = Holidays.objects.count()
+            print("➡️ Total holidays:", total_holidays)
+
+            if total_holidays == 1:
+                print("➡️ First holiday created → triggering page reload.")
                 return HttpResponse("<script>window.location.reload();</script>")
+
+        else:
+            print("❌ Form errors:", form.errors)
+
     return render(
-        request, "holiday/holiday_form.html", {"form": form, "pd": previous_data}
+        request,
+        "holiday/holiday_form.html",
+        {"form": form, "pd": previous_data},
     )
+
+
 
 
 def holidays_excel_template(request):
@@ -7550,3 +9488,25 @@ def protected_media(request, path):
             return redirect("login")
 
     return FileResponse(open(media_path, "rb"))
+
+
+
+def under_construction(request):
+    return render(request, "report/under_construction.html")
+
+
+def map_view(request):
+    return render(request, "map.html", {
+        "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY
+    })
+    
+# static page
+def support(request):
+    return render(request, "support.html")
+
+def marketing(request):
+    return render(request, "marketing.html")
+
+def privacypolicy(request):
+    return render(request, "privacypolicy.html")
+

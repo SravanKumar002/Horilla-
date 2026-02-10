@@ -1,0 +1,53 @@
+{% load i18n %}
+<div class="modal-header">
+    <h5 class="modal-title">{% trans "Import Payslips" %}</h5>
+    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+    </button>
+</div>
+
+<div class="modal-body">
+
+    {% if error_message %}
+    <div class="alert alert-danger" role="alert">
+        <strong>{% trans "Import Error:" %}</strong> {{ error_message }}
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" hx-post="{% url 'payslip-import-process' %}"
+        hx-target="#objectDetailsModalTarget" hx-swap="outerHTML" class="form">
+        {% csrf_token %}
+
+        <p class="text-muted">{% trans "Excel file to import payslips." %}</p>
+
+        <div class="form-group">
+            {# Access the file field from the form context (assuming it's named 'import_file') #}
+            {{ form.import_file.label_tag }}
+
+            <input type="file" name="file" class="form-control" required id="{{ form.import_file.id_for_label }}" {#
+                Preserve original ID for labeling #}>
+
+            {# Display any non-field errors or specific field errors for the form instance #}
+            {% if form.non_field_errors %}
+            <div class="text-danger small mt-1">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            {# Django's default rendering of field errors, assuming your form field is named 'import_file' #}
+            {% if form.import_file.errors %}
+            <div class="text-danger small mt-1">{{ form.import_file.errors }}</div>
+            {% endif %}
+
+            {# Display help text if needed #}
+            {% if form.import_file.help_text %}
+            <small class="form-text text-muted">{{ form.import_file.help_text|safe }}</small>
+            {% endif %}
+        </div>
+        <div class="modal-footer mt-4">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">{% trans "Close" %}</button>
+
+            <button type="submit" class="btn btn-primary">
+                {% trans "Upload and Import" %}
+            </button>
+        </div>
+    </form>
+</div>

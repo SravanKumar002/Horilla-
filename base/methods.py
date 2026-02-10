@@ -834,7 +834,7 @@ def get_date_range(start_date, end_date):
     return date_list
 
 
-def get_holiday_dates(range_start: date, range_end: date) -> list:
+def get_holiday_dates(range_start: date, range_end: date, company=None) -> list:
     """
     :return: this functions returns a list of all holiday dates.
     """
@@ -842,6 +842,10 @@ def get_holiday_dates(range_start: date, range_end: date) -> list:
     query = Q()
     for check_date in pay_range_dates:
         query |= Q(start_date__lte=check_date, end_date__gte=check_date)
+    
+    if company:
+        query &= Q(company_id=company)
+        
     holidays = Holidays.objects.filter(query)
     holiday_dates = set([])
     for holiday in holidays:
@@ -853,11 +857,14 @@ def get_holiday_dates(range_start: date, range_end: date) -> list:
     return list(set(holiday_dates))
 
 
-def get_company_leave_dates(year):
+def get_company_leave_dates(year, company=None):
     """
     :return: This function returns a list of all company leave dates
     """
     company_leaves = CompanyLeaves.objects.all()
+    if company:
+        company_leaves = company_leaves.filter(company_id=company)
+        
     company_leave_dates = []
     for company_leave in company_leaves:
         based_on_week = company_leave.based_on_week
@@ -893,7 +900,7 @@ def get_company_leave_dates(year):
     return company_leave_dates
 
 
-def get_working_days(start_date, end_date):
+def get_working_days(start_date, end_date, company=None):
     """
     This method is used to calculate the total working days, total leave, worked days on that period
 
@@ -902,18 +909,18 @@ def get_working_days(start_date, end_date):
         end_date (_type_): the end date till the date needed
     """
 
-    holiday_dates = get_holiday_dates(start_date, end_date)
+    holiday_dates = get_holiday_dates(start_date, end_date, company=company)
 
     # appending company/holiday leaves
     # Note: Duplicate entry may exist
     company_leave_dates = (
         list(
             set(
-                get_company_leave_dates(start_date.year)
-                + get_company_leave_dates(end_date.year)
+                get_company_leave_dates(start_date.year, company=company)
+                + get_company_leave_dates(end_date.year, company=company)
             )
         )
-        + holiday_dates
+
     )
 
     date_range = get_date_range(start_date, end_date)

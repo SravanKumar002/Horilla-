@@ -12,7 +12,23 @@
 
         <div class="swal2-html-container" id="swal2-html-container" style="display: block">
             <p>No {{model}} were imported.</p>
-            <p>There were {{error_count}} errors during the import.</p>
+            <p>There were {{error_count}} error(s) during the import.</p>
+            {% if error_messages %}
+                <div style="margin-top: 15px; max-height: 200px; overflow-y: auto; text-align: left; background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #dee2e6;">
+                    <strong>Error Details:</strong>
+                    <ul style="margin: 10px 0 0 20px; padding: 0;">
+                        {% for error_msg in error_messages %}
+                            <li style="margin-bottom: 5px; color: #721c24;">{{ error_msg }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% if has_more_errors %}
+                        <p style="margin-top: 10px; font-style: italic; color: #6c757d;">... and more errors. Please download the error file for complete details.</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+            {% if path_info %}
+                <p style="margin-top: 10px;">Please download the error file to see all error details.</p>
+            {% endif %}
         </div>
         <!-- End of display warning SweetAlert when no records are imported -->
     {% else %}
@@ -25,7 +41,20 @@
         <div class="swal2-html-container" id="swal2-html-container" style="display: block">
             {% if path_info %}
                 <p>{{created_count}} {{model}} were successfully imported.</p>
-                <p>{{error_count}} rows have errors during the import.</p>
+                <p>{{error_count}} row(s) have errors during the import.</p>
+                {% if error_messages %}
+                    <div style="margin-top: 15px; max-height: 200px; overflow-y: auto; text-align: left; background-color: #fff3cd; padding: 10px; border-radius: 5px; border: 1px solid #ffc107;">
+                        <strong>Error Details:</strong>
+                        <ul style="margin: 10px 0 0 20px; padding: 0;">
+                            {% for error_msg in error_messages %}
+                                <li style="margin-bottom: 5px; color: #856404;">{{ error_msg }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% if has_more_errors %}
+                            <p style="margin-top: 10px; font-style: italic; color: #6c757d;">... and more errors. Please download the error file for complete details.</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
             {% else %}
                 {{total_count}} {{model}} were successfully imported.
             {% endif %}

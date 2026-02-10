@@ -1,0 +1,1352 @@
+{% load static %}
+{% load horillafilters %}
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+{% load notifications_tags %}
+{% load basefilters %}{% notifications_unread as unread_count %}
+
+{% load static basefilters horillafilters employee_filter i18n %}
+{% load tz %}
+{% now "Y-m-d" as current_date %}
+{% load accessibility_filters %}
+{% load attendancefilters %}
+
+<div id="employee-dashboard-root">
+  <style>
+    #employee-dashboard-root .page {
+      height: auto;
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 360px 1fr 360px;
+      gap: 24px;
+    }
+
+    #employee-dashboard-root .card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e5e7eb;
+      transition: all 0.2s ease;
+      margin-bottom: 16px;
+    }
+
+    #employee-dashboard-root .card:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      transform: translateY(-2px);
+    }
+
+    /* Left column */
+    #employee-dashboard-root .welcome-text {
+      font-size: 20px !important;
+      color: #111827;
+      font-weight: 700;
+      margin-bottom: 7px;
+      text-align: center;
+    }
+
+    #employee-dashboard-root .profile-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    /* #employee-dashboard-root .avatar {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #fff;
+      margin-bottom: 16px;
+      border: 3px solid #f3f4f6;
+    } */
+
+    .oh-nav {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #fff;
+      margin-bottom: 16px;
+      border: 3px solid #f3f4f6;
+    }
+
+    /* #employee-dashboard-root .avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    } */
+
+    #employee-dashboard-root .profile-info {
+      margin-top: 12px;
+    }
+
+    #employee-dashboard-root .info-item {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+
+    #employee-dashboard-root .info-item strong {
+      color: #111827;
+      font-weight: 600;
+    }
+
+    /* Check-in Card */
+    #employee-dashboard-root .checkin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    #employee-dashboard-root .checkin-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    #employee-dashboard-root .status-badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: #dcfce7;
+      color: #166534;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    #employee-dashboard-root .checkin-container {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    #employee-dashboard-root .checkin-box {
+      flex: 1;
+      text-align: center;
+    }
+
+    #employee-dashboard-root .checkin-label {
+      font-size: 25px !important;
+      color: #6b7280;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    #employee-dashboard-root .checkin-time {
+      font-size: 24px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    #employee-dashboard-root .extra-info {
+      margin-top: 16px;
+      background: #f9fafb;
+      padding: 12px 14px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    #employee-dashboard-root .date-line {
+      font-size: 14px;
+      font-weight: 500;
+      color: #111827;
+      align-items: center;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    #employee-dashboard-root .hours-line {
+      font-size: 14px;
+      font-weight: 500;
+      color: #6b7280;
+    }
+
+    /* Attendance Calendar */
+    #employee-dashboard-root .attendance-calendar {
+      background: #ffffff;
+      height: 480px;
+    }
+
+    #attendance {
+      height: 248px !important;
+    }
+
+    #employee-dashboard-root .attendance-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 20px;
+    }
+
+    #employee-dashboard-root .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    #employee-dashboard-root .calendar-month {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    #employee-dashboard-root .calendar-nav {
+      display: flex;
+      gap: 12px;
+    }
+
+    #employee-dashboard-root .nav-btn {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #e5e7eb;
+      background: white;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 18px;
+      color: #6b7280;
+    }
+
+    #employee-dashboard-root .nav-btn:hover {
+      background: #f9fafb;
+      border-color: #d1d5db;
+    }
+
+    #employee-dashboard-root .calendar-wrapper {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 24px;
+      position: relative;
+    }
+
+    #employee-dashboard-root .calendar-wrapper::before {
+      content: "";
+      position: absolute;
+      left: 340px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #e5e7eb;
+      /* margin-left: 8px; */
+      display: none;
+    }
+
+    #employee-dashboard-root .calendar-grid-container {
+      flex: 1;
+    }
+
+    #employee-dashboard-root .calendar-days-header {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      /* margin-bottom: 8px; */
+    }
+
+    #employee-dashboard-root .day-header {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #6b7280;
+      padding: 8px 0;
+    }
+
+    #employee-dashboard-root .day-header.sunday {
+      color: #dc2626;
+    }
+
+
+
+    /*---------------------new------------------------------------------*/
+
+
+    .calendar-days-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .calendar-day {
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      height: 44px;
+      width: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .calendar-day.present {
+      background: #7cdec7;
+      color: #30556F;
+    }
+
+    .calendar-day.half-day {
+      background: #b6ecdf;
+      color: #30556F;
+    }
+
+    .calendar-day.absent {
+      background: #e9afae;
+      color: #30556F;
+    }
+
+    .calendar-day.leave {
+      background: #d0bdfb;
+      color: #30556F;
+    }
+
+    .calendar-day.public-holiday {
+      background: #a79365;
+      color: #30556F;
+    }
+
+    /* .calendar-day.missed-punch-out {
+      background: #f0f2c1;
+      color: #30556F;
+    } */
+
+    /* Neutral for future dates */
+    .calendar-day.future {
+      background: #f9fafb;
+      color: #30556F;
+      border: 1px solid #e5e7eb;
+    }
+
+
+
+    /* //-------------------------calender----------// */
+
+    #employee-dashboard-root .calendar-days-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+    }
+
+    #employee-dashboard-root .calendar-date {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: #374151;
+    }
+
+    #employee-dashboard-root .calendar-date.empty {
+      cursor: default;
+
+    }
+
+    #employee-dashboard-root .calendar-date.present {
+      background: #7cdec7;
+      color: #30556F;
+
+    }
+
+    #employee-dashboard-root .calendar-date.half-day {
+      background: #b6ecdf;
+      color: #30556F;
+
+    }
+
+    #employee-dashboard-root .calendar-date.absent {
+      background: #e9afae;
+      color: #30556F;
+
+    }
+
+    #employee-dashboard-root .calendar-date.weekly-off {
+      background: #ab88f8;
+      color: #30556F;
+
+    }
+
+    /* Full/Half Day Leave variants */
+    #employee-dashboard-root .calendar-date.leave-full {
+      background: #d0bdfb;
+      color: #30556F;
+    }
+
+    /* Generic Half Day Leave (future): half leave color + neutral */
+    #employee-dashboard-root .calendar-date.leave-half {
+      background: linear-gradient(90deg, #d0bdfb 50%, #f9fafb 50%);
+      color: #30556F;
+    }
+
+    #employee-dashboard-root .calendar-date.leave-half-present {
+      background: linear-gradient(90deg, #d0bdfb 50%, #7cdec7 50%);
+      color: #30556F;
+    }
+
+    #employee-dashboard-root .calendar-date.leave-half-absent {
+      background: linear-gradient(90deg, #d0bdfb 50%, #e9afae 50%);
+      color: #30556F;
+    }
+
+    #employee-dashboard-root .calendar-date.public-holiday {
+      background: #a79365;
+      color: #30556F;
+
+    }
+
+    /* #employee-dashboard-root .calendar-date.missed-punch-out {
+      background: #f0f2c1;
+      color: #30556F;
+
+    } */
+
+    #employee-dashboard-root .calendar-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    #employee-dashboard-root .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    #employee-dashboard-root .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    #employee-dashboard-root .legend-dot.present {
+      background: #7cdec7;
+    }
+
+    #employee-dashboard-root .legend-dot.half-day {
+      background: #b6ecdf;
+    }
+
+    #employee-dashboard-root .legend-dot.absent {
+      background: #e9afae;
+    }
+
+    #employee-dashboard-root .legend-dot.weekly-off {
+      background: #ab88f8;
+    }
+
+    #employee-dashboard-root .legend-dot.leave {
+      background: #d0bdfb;
+    }
+
+    #employee-dashboard-root .legend-dot.public-holiday {
+      background: #a79365;
+    }
+
+    /* #employee-dashboard-root .legend-dot.missed-punch-out {
+      background: #f0f2c1;
+    } */
+
+    #employee-dashboard-root .legend-label {
+      color: #374151;
+      font-weight: 500;
+    }
+
+    /* Notifications Card */
+    #employee-dashboard-root .notifications-card {
+      margin-top: 0;
+    }
+
+    #employee-dashboard-root .notifications-content {
+      padding: 32px 20px;
+      text-align: center;
+    }
+
+    #employee-dashboard-root .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #employee-dashboard-root .empty-icon {
+      width: 80px;
+      height: 80px;
+      background: #f3f4f6;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin-bottom: 16px;
+    }
+
+    #employee-dashboard-root .empty-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #9ca3af;
+      margin-bottom: 8px;
+    }
+
+    #employee-dashboard-root .empty-text {
+      font-size: 14px;
+      color: #9ca3af;
+      max-width: 280px;
+      line-height: 1.5;
+    }
+
+    /* Right column */
+    #employee-dashboard-root .announcements-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    #employee-dashboard-root .announcements-header h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    #employee-dashboard-root .see-all {
+      font-size: 13px;
+      color: #8b5cf6;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    #employee-dashboard-root .see-all:hover {
+      color: #7c3aed;
+    }
+
+    #employee-dashboard-root .list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      border-radius: 8px;
+      background: #fafafa;
+      margin-bottom: 8px;
+      cursor: pointer;
+      border: 1px solid #f0f0f0;
+      transition: all 0.2s;
+    }
+
+    #employee-dashboard-root .list-item:hover {
+      background: #f5f5f5;
+      transform: translateX(2px);
+      border-color: #e5e5e5;
+    }
+
+    #employee-dashboard-root .list-item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #employee-dashboard-root .list-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+
+    #employee-dashboard-root .list-icon.announcement {
+      background: #fef3c7;
+    }
+
+    #employee-dashboard-root .avatar-xs {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    #employee-dashboard-root .avatar-xs img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #employee-dashboard-root .list-content h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 2px;
+    }
+
+    #employee-dashboard-root .list-content p {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    #employee-dashboard-root .list-arrow {
+      color: #9ca3af;
+      font-size: 20px;
+    }
+
+    /* Quick Actions */
+    #employee-dashboard-root .quick-actions-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 16px;
+    }
+
+
+
+    #quick {
+      height: 480px !important;
+    }
+
+    #employee-dashboard-root .quick-actions-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 20px;
+      flex: 1;
+    }
+
+
+    /* #employee-dashboard-root .action-button {
+      background: #8b5cf6;
+      color: white;
+      border: none;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.2s;
+      text-align: center;
+    } */
+
+    #employee-dashboard-root .hotlink-chip {
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: white;
+      border: 1px solid #e9d5ff;
+      font-size: 13px;
+      font-weight: 500;
+      color: #3F2B66;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #employee-dashboard-root .hotlink-chip:hover {
+      background: #f3e8ff;
+      transform: translateY(-2px);
+    }
+
+    #employee-dashboard-root .action-button:hover {
+      background: #7c3aed;
+    }
+
+    /* Announcements Container */
+    #employee-dashboard-root .oh-card-dashboard__body {
+      max-height: 400px;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+
+    #employee-dashboard-root .oh-card-dashboard__body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #employee-dashboard-root .oh-card-dashboard__body::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 10px;
+    }
+
+    #employee-dashboard-root .oh-card-dashboard__body::-webkit-scrollbar-thumb {
+      background: #d1d5db;
+      border-radius: 10px;
+    }
+
+    #employee-dashboard-root .oh-card-dashboard__body::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af;
+    }
+
+    /* Notifications Container */
+    #employee-dashboard-root #dashboardNotificationContainer {
+      max-height: 500px;
+      /* overflow-y: auto; */
+      padding-right: 8px;
+    }
+
+    #employee-dashboard-root #dashboardNotificationContainer::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #employee-dashboard-root #dashboardNotificationContainer::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 10px;
+    }
+
+    #employee-dashboard-root #dashboardNotificationContainer::-webkit-scrollbar-thumb {
+      background: #d1d5db;
+      border-radius: 10px;
+    }
+
+    #employee-dashboard-root #dashboardNotificationContainer::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af;
+    }
+
+    /* Grid placement */
+    #employee-dashboard-root .col-left {
+      grid-column: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #employee-dashboard-root .col-mid {
+      grid-column: 2;
+    }
+
+    #employee-dashboard-root .col-right {
+      grid-column: 3;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .padding-notification {
+      padding: 20px;
+      border: 2px solid red;
+    }
+
+    /* Responsive */
+    /* @media(max-width : 4000px){
+  #employee-dashboard-root .page {
+      height: auto;
+      max-width: 3000px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 360px 1fr 360px;
+      gap: 24px;
+    }
+} */
+
+    @media (max-width: 1200px) {
+      #employee-dashboard-root .page {
+        grid-template-columns: 320px 1fr;
+        gap: 20px;
+      }
+
+      #employee-dashboard-root .col-left {
+        grid-column: 1;
+      }
+
+      #employee-dashboard-root .col-mid {
+        grid-column: 2;
+      }
+
+      #employee-dashboard-root .col-right {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+
+      #employee-dashboard-root .col-right>.card {
+        margin-bottom: 0;
+      }
+
+      #employee-dashboard-root .calendar-wrapper {
+        grid-template-columns: 1fr;
+      }
+
+      #employee-dashboard-root .calendar-wrapper::before {
+        display: none;
+      }
+
+      #employee-dashboard-root .calendar-legend {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      #employee-dashboard-root {
+        padding: 16px;
+      }
+
+      #employee-dashboard-root .page {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      #employee-dashboard-root .col-left,
+      #employee-dashboard-root .col-mid,
+      #employee-dashboard-root .col-right {
+        grid-column: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #employee-dashboard-root .card {
+        padding: 20px;
+      }
+
+      #employee-dashboard-root .calendar-wrapper {
+        grid-template-columns: 1fr;
+      }
+
+      #employee-dashboard-root .calendar-wrapper::before {
+        display: none;
+      }
+
+      #employee-dashboard-root .calendar-legend {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+
+      #employee-dashboard-root .calendar-days-grid {
+        gap: 4px;
+      }
+
+      .date {
+        margin-top: 30px !important;
+      }
+
+      #employee-dashboard-root .calendar-date {
+        font-size: 12px;
+      }
+
+      #employee-dashboard-root .day-header {
+        font-size: 11px;
+      }
+    }
+
+
+
+    .oh-profile {
+      position: relative;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 15px !important
+    }
+  </style>
+
+  <div class="page oh-wrapper" style="padding: 10px;">
+    <!-- LEFT COLUMN -->
+    <div class="col-left">
+      <!-- Profile Card -->
+      <div class="card">
+        <div class="welcome-text">Welcome, {{ user.employee_get.employee_first_name }}</div>
+        <div class="date-line">
+          <span id="currentDay"></span> • <span id="currentDate"></span>
+        </div>
+        <div class="profile-section">
+
+          <!-- <img src="https://i.pravatar.cc/120?img=47" alt="employee" /> -->
+          <div class="oh-nav">
+            <img src="{{request.user.employee_get.get_avatar}}" class="oh-navbar__user-image" loading="lazy" />
+          </div>
+
+          <div class="profile-info">
+            <div class="info-item">
+              <strong>Reporting Manager:</strong> <span id="manager">{{ reporting_manager }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions Card -->
+      <div class="card quick-actions-card" id="quick">
+        <h3 class="quick-actions-title">Quick Actions</h3>
+        <div class="quick-actions-grid">
+          {% if payslip_id %}
+          <a href="{% url 'view-payslip-pdf' payslip_id %}" type="button" title="{% trans 'Download' %}"
+            class="hotlink-chip" style="text-decoration:None;color: #7cdec7;">Download Payslip</a>
+          {% else %}
+          <a href="#" type="button" title="{% trans 'Download' %}" class="hotlink-chip"
+            style="text-decoration:None;pointer-events: none;">Download Payslip</a>
+          {% endif %}
+          <!-- <div class="hotlink-chip">Download Payslip</div> -->
+
+          <div class="hotlink-chip" data-toggle="oh-modal-toggle" data-target="#objectCreateModal"
+            hx-get="{% url 'leave-request-create' %}?confirm={{confirm}}" hx-target="#objectCreateModalTarget"
+            style="cursor: pointer;">
+            Apply Leave
+          </div>
+
+          <!-- <div class="hotlink-chip">Check leave balance</div> -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MIDDLE COLUMN -->
+    <div class="col-mid">
+      <!-- Attendance Status Card -->
+      <div class="card" id="attendance">
+        <div class="checkin-header">
+          <span class="checkin-title">Status</span>
+          {% if status == "Present" %}
+          <span class="status-badge" id="attendanceStatus">{{ status }}</span>
+          {% else %}
+          <span class="status-badge" id="attendanceStatus" style="background:#e9afae;color:#bd5151;">{{ status }}</span>
+          {% endif %}
+        </div>
+
+        <div class="checkin-container" style="display: flex; justify-content: center;">
+          <div class="checkin-box" style="text-align: center;">
+            <div class="checkin-label">Clock In</div>
+            <div class="checkin-time">
+              {{ first_check_in|default:"--:--" }}
+            </div>
+
+          </div>
+        </div>
+
+        <div class="extra-info" style="margin-top: 10px; text-align: center;">
+          <!-- <div class="hours-line">
+            Total Working Hours: <span id="totalHours">{{ total_working_hour }}</span>
+          </div> -->
+          <div class="hours-line" style="margin-top: 3px;">
+            Shift : <span> {{shift_schedule}} || {{shift_start_time}} - {{shift_end_time}}</span>
+          </div>
+        </div>
+      </div>
+
+
+
+      <!-- //-------------------------new clender-------------------------// -->
+
+      <!-- Attendance Calendar -->
+      <div class="card attendance-calendar">
+        <h2 class="attendance-title">Attendance</h2>
+
+        <!-- 🌙 Calendar Header -->
+        <div class="calendar-header">
+          <!-- <div class="calendar-month" id="calendarMonth">November 2025</div> -->
+          <div class="calendar-month" id="calendarMonth" data-year="{% now 'Y' %}" data-month="{% now 'm' %}">
+            {% now "F Y" %}</div>
+
+
+          <div class="calendar-nav">
+            <button class="nav-btn" id="prevMonth">‹</button>
+            <button class="nav-btn" id="nextMonth">›</button>
+          </div>
+        </div>
+
+        <!-- 📅 Calendar Wrapper -->
+        <div class="calendar-wrapper">
+          <div class="calendar-grid-container">
+
+            <!-- Week Headers -->
+            <div class="calendar-days-header">
+              {% for w in weekdays %}
+              <div class="day-header {% if w.name == 'Sun' %}sunday{% endif %}">
+                {{ w.name }}
+              </div>
+              {% endfor %}
+            </div>
+
+            <!-- 🔹 Dynamic Calendar/Attendance Grid -->
+            <div class="date" id="calendarDays"
+              hx-get="{% url 'calendar_work_records_change_month' %}?month={% now 'Y-m' %}" hx-trigger="load"
+              hx-swap="innerHTML">
+            </div>
+
+          </div>
+
+          <!------ Legend ------->
+          <div class="calendar-legend">
+            <div class="legend-item">
+              <div class="legend-dot present"></div><span>Present</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot half-day"></div><span>Half Day</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot absent"></div><span>Absent</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot weekly-off"></div><span>Weekly Off</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot leave"></div><span>Leave</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot public-holiday"></div><span>Public Holiday</span>
+            </div>
+            <!-- <div class="legend-item">
+              <div class="legend-dot missed-punch-out"></div><span>Missed Punch Out</span>
+            </div> -->
+          </div>
+        </div>
+      </div>
+      <span id="hxValsSource" data-hx-vals="{{ pd }}"></span>
+
+
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="col-right">
+      <!-- Announcements Card -->
+      <div class="card">
+        <div class="announcements-header">
+          <h3>{% trans "Announcements" %}</h3>
+          {% if perms.base.add_announcement %}
+          <button id="addAnnouncement" class="oh-btn oh-btn--secondary-outline" hx-get="{% url 'create-announcement' %}"
+            hx-target="#objectCreateModalTarget" hx-swap="innerHTML" data-toggle="oh-modal-toggle"
+            data-target="#objectCreateModal" title="{% trans 'Create Announcement' %}" style="
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 36px;
+              height: 10px;
+              border-radius: 6px;
+            ">
+            <ion-icon name="add-outline" class="m-0"></ion-icon>
+          </button>
+          {% endif %}
+        </div>
+        <hr />
+        <div style="height: 212px; overflow-x: hidden;" class="oh-card-dashboard__body"
+          hx-get="{% url 'announcement-list' %}" hx-trigger="load " id="announcementListCard">
+          <div class="animated-background"></div>
+        </div>
+      </div>
+
+      <!-- Notifications Card -->
+      <!-- <div  class="oh-navbar__notifications"> -->
+      <!-- hx-trigger="load, every 10s" -->
+
+      <div class="card notifications-card" x-data="{markRead: false, visible: true}" hx-get="{% url 'notifications' %}"
+        hx-trigger="load" hx-target="#dashboardNotificationContainer" hx-swap="innerHTML">
+
+        <div id="dashboardNotificationContainer">
+          {% include 'notification/notification_items.html' %}
+        </div>
+
+        <div class="oh-navbar__notification-empty" x-show="!visible">
+          <img src="{% static 'images/ui/happy.svg' %}" alt="All caught up" width="50" height="50" loading="lazy" />
+          <span class="oh-navbar__notification-empty-title">{% trans "All caught up!" %}</span>
+          <span class="oh-navbar__notification-empty-desc">{% trans "You have no new notifications at the moment."
+            %}</span>
+        </div>
+      </div>
+
+      <!-- </div> -->
+
+
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const root = document.getElementById("employee-dashboard-root");
+
+      /* ========== Attendance Details ========== */
+      function updateAttendanceDetails() {
+        const now = new Date();
+
+        // Day
+        const days = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ];
+        const dayEl = root.querySelector("#currentDay");
+        if (dayEl) dayEl.innerText = days[now.getDay()];
+
+        // Date
+        const date = now.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+        const dateEl = root.querySelector("#currentDate");
+        if (dateEl) dateEl.innerText = date;
+
+        // Optional — Clock In Example (auto time)
+        // Uncomment if you want auto-updating time display
+        /*
+        const checkInEl = root.querySelector("#checkInTime");
+        if (checkInEl) {
+          checkInEl.innerText = now.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        }
+        */
+      }
+
+      // Run once on page load
+      updateAttendanceDetails();
+
+      // Optional — update every 1 minute (if you want live time/date updates)
+      // setInterval(updateAttendanceDetails, 60000);
+    })();
+  </script>
+
+</div>
+
+
+{% include "announcement_single_view.html" %}
+{% if not request.user.driverviewed_set.first or "dashboard" not in request.user.driverviewed_set.first.user_viewed %}
+<script>
+  runDriver()
+</script>
+{% endif %}
+<script>
+  const el = document.getElementById("manager");
+  el.textContent = el.textContent.replace(/\s*\(.*?\)/, "");
+</script>
+
+
+
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const prevBtn = document.getElementById("prevMonth");
+    const nextBtn = document.getElementById("nextMonth");
+    const monthLabel = document.getElementById("calendarMonth");
+    const calendarDays = document.getElementById("calendarDays");
+    const baseUrl = "{% url 'calendar_work_records_change_month' %}";
+
+    console.log("✅ Calendar initialized:", {
+      year: monthLabel.dataset.year,
+      month: monthLabel.dataset.month
+    });
+
+    // Function to update the calendar when navigating
+    function updateCalendar(newYear, newMonth) {
+      console.log("🔁 Updating calendar to:", newYear, newMonth);
+
+      // Format label (e.g., October 2025)
+      const date = new Date(newYear, newMonth - 1, 1);
+      const label = date.toLocaleString("default", { month: "long", year: "numeric" });
+      monthLabel.textContent = label;
+      monthLabel.dataset.year = newYear;
+      monthLabel.dataset.month = newMonth;
+
+      // Build proper URL
+      const monthStr = `${newYear}-${String(newMonth).padStart(2, "0")}`;
+      // const newUrl = `/attendance/calendar_work_records_change_month?month=${monthStr}`;
+      const newUrl = `${baseUrl}?month=${monthStr}`;
+
+      console.log("🌐 Fetching data from:", newUrl);
+
+      // Update the HX target + trigger reload
+      htmx.ajax('GET', newUrl, { target: calendarDays, swap: 'innerHTML' });
+    }
+
+    // Go to Previous Month
+    prevBtn.addEventListener("click", () => {
+      let year = parseInt(monthLabel.dataset.year) || new Date().getFullYear();
+      let month = parseInt(monthLabel.dataset.month) || (new Date().getMonth() + 1);
+      month -= 1;
+      if (month < 1) {
+        month = 12;
+        year -= 1;
+      }
+      updateCalendar(year, month);
+    });
+
+    // Go to Next Month
+    nextBtn.addEventListener("click", () => {
+      let year = parseInt(monthLabel.dataset.year) || new Date().getFullYear();
+      let month = parseInt(monthLabel.dataset.month) || (new Date().getMonth() + 1);
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+      updateCalendar(year, month);
+    });
+  });
+</script>
+
+<script>
+  // Function to update status badge based on calendar status
+  function updateStatusFromCalendar(status) {
+    const statusBadge = document.getElementById("attendanceStatus");
+    if (!statusBadge) return;
+
+    // Map calendar status to display text
+    const statusMap = {
+      "present": "Present",
+      "absent": "Absent",
+      "half-day": "Half Day",
+      "weekly-off": "Weekly Off",
+      "leave-full": "Leave",
+      "leave-half-present": "Half Day",
+      "leave-half-absent": "Absent",
+      "public-holiday": "Public Holiday",
+      // "missed-check-out": "Missed Punch Out",
+      // "missed-punch-out": "Missed Punch Out",
+      "future": "Future",
+      "empty": ""
+    };
+
+    const displayText = statusMap[status] || status.charAt(0).toUpperCase() + status.slice(1);
+
+    // Update status badge text
+    statusBadge.textContent = displayText;
+
+    // Update status badge color based on status
+    if (status === "present" || status === "leave-half-present") {
+      statusBadge.style.background = "#dcfce7";
+      statusBadge.style.color = "#166534";
+    } else if (status === "absent" || status === "leave-half-absent") {
+      statusBadge.style.background = "#e9afae";
+      statusBadge.style.color = "#bd5151";
+    } else if (status === "half-day") {
+      statusBadge.style.background = "#b6ecdf";
+      statusBadge.style.color = "#30556F";
+    } else if (status === "weekly-off") {
+      statusBadge.style.background = "#ab88f8";
+      statusBadge.style.color = "#30556F";
+    } else if (status === "leave-full" || status === "leave-half") {
+      statusBadge.style.background = "#d0bdfb";
+      statusBadge.style.color = "#30556F";
+    } else if (status === "public-holiday") {
+      statusBadge.style.background = "#a79365";
+      statusBadge.style.color = "#30556F";
+    }
+    //  else if (status === "missed-check-out" || status === "missed-punch-out") {
+    //   statusBadge.style.background = "#f0f2c1";
+    //   statusBadge.style.color = "#30556F";
+    // } 
+    else {
+      statusBadge.style.background = "#f9fafb";
+      statusBadge.style.color = "#30556F";
+    }
+
+  }
+
+  // Function to get today's date status from calendar
+  function updateStatusFromToday() {
+    const today = new Date();
+    const todayDay = today.getDate();
+    const todayMonth = today.getMonth() + 1; // JavaScript months are 0-indexed
+    const todayYear = today.getFullYear();
+
+    // Get current calendar month from the month label
+    const monthLabel = document.getElementById("calendarMonth");
+    if (!monthLabel) return;
+
+    const calendarYear = parseInt(monthLabel.dataset.year) || todayYear;
+    const calendarMonth = parseInt(monthLabel.dataset.month) || todayMonth;
+
+    // Only update if we're viewing the current month
+    if (calendarYear !== todayYear || calendarMonth !== todayMonth) {
+      return;
+    }
+
+    // Find today's date in the calendar
+    const calendarDates = document.querySelectorAll("#calendarDays .calendar-date");
+    calendarDates.forEach(dateEl => {
+      const dayText = dateEl.textContent.trim();
+      if (dayText && dayText === String(todayDay)) {
+        // Get status from class list
+        const classes = dateEl.classList;
+        let status = "future";
+
+        // Check for status classes (order matters - check specific ones first)
+        if (classes.contains("present")) status = "present";
+        else if (classes.contains("absent")) status = "absent";
+        else if (classes.contains("half-day")) status = "half-day";
+        else if (classes.contains("weekly-off")) status = "weekly-off";
+        else if (classes.contains("leave-full")) status = "leave-full";
+        else if (classes.contains("leave-half-present")) status = "leave-half-present";
+        else if (classes.contains("leave-half-absent")) status = "leave-half-absent";
+        else if (classes.contains("leave-half")) status = "leave-half";
+        else if (classes.contains("public-holiday")) status = "public-holiday";
+        // else if (classes.contains("missed-punch-out") || classes.contains("missed-check-out")) status = "missed-punch-out";
+        else if (classes.contains("future")) status = "future";
+
+        updateStatusFromCalendar(status);
+        return;
+      }
+    });
+  }
+
+  // Listen for clicks on calendar dates
+  document.addEventListener("click", (e) => {
+    const calendarDate = e.target.closest(".calendar-date");
+    if (calendarDate && !calendarDate.classList.contains("empty")) {
+      const classes = calendarDate.classList;
+      let status = "future";
+
+      // Extract status from class list
+      if (classes.contains("present")) status = "present";
+      else if (classes.contains("absent")) status = "absent";
+      else if (classes.contains("half-day")) status = "half-day";
+      else if (classes.contains("weekly-off")) status = "weekly-off";
+      else if (classes.contains("leave-full")) status = "leave-full";
+      else if (classes.contains("leave-half-present")) status = "leave-half-present";
+      else if (classes.contains("leave-half-absent")) status = "leave-half-absent";
+      else if (classes.contains("leave-half")) status = "leave-half";
+      else if (classes.contains("public-holiday")) status = "public-holiday";
+      // else if (classes.contains("missed-punch-out") || classes.contains("missed-check-out")) status = "missed-punch-out";
+      else if (classes.contains("future")) status = "future";
+
+      updateStatusFromCalendar(status);
+    }
+  });
+
+  // Update status when calendar loads or is swapped
+  function initializeStatusUpdate() {
+    // Wait a bit for calendar to render (multiple attempts in case of slow loading)
+    let attempts = 0;
+    const maxAttempts = 10;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      const calendarDates = document.querySelectorAll("#calendarDays .calendar-date");
+      if (calendarDates.length > 0 || attempts >= maxAttempts) {
+        clearInterval(checkInterval);
+        updateStatusFromToday();
+      }
+    }, 150);
+  }
+
+  // Run on page load
+  document.addEventListener("DOMContentLoaded", () => {
+    initializeStatusUpdate();
+  });
+
+  // Listen for HTMX swap events (when calendar month changes)
+  document.body.addEventListener("htmx:afterSwap", (e) => {
+    if (e.detail.target.id === "calendarDays") {
+      initializeStatusUpdate();
+    }
+  });
+
+  // Also listen for HTMX load events
+  document.body.addEventListener("htmx:load", (e) => {
+    if (e.detail.target.id === "calendarDays") {
+      initializeStatusUpdate();
+    }
+  });
+</script>

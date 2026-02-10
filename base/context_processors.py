@@ -9,10 +9,12 @@ import re
 from django.apps import apps
 from django.contrib import messages
 from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 
-from base.models import Company, TrackLateComeEarlyOut
+from base.models import Company, CompanyAccessControl, TrackLateComeEarlyOut
+from company.utils import annotate_company_metrics, build_company_hierarchy
 from base.urls import urlpatterns
 from employee.models import (
     Employee,
@@ -23,7 +25,9 @@ from employee.models import (
 from horilla import horilla_apps
 from horilla.decorators import hx_request_required, login_required, permission_required
 from horilla.methods import get_horilla_model_class
-
+from attendance.filters import (
+    AttendanceActivityFilter,)
+from datetime import datetime
 
 class AllCompany:
     """
@@ -31,7 +35,7 @@ class AllCompany:
     """
 
     class Urls:
-        url = "https://ui-avatars.com/api/?name=All+Company&background=random"
+        url = "https://ui-avatars.com/api/?name=All+Company&background=ffffff&color=5e17eb"
 
     company = "All Company"
     icon = Urls()
@@ -51,21 +55,72 @@ def get_last_section(path):
 def get_companies(request):
     """
     This method will return the history additional field form
+    
+    Company visibility logic:
+    - Global superusers/admins (no company assigned): See ALL companies
+    - SuperUsers with manager permission: See ALL companies
+    - SuperUsers without manager permission: See only their company and its children
+    - Regular users: See only their company and its children
     """
-    companies = list(
-        [company.id, company.company, company.icon.url, False]
-        for company in Company.objects.all()
-    )
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        company_qs = Company.objects.none()
+    else:
+        # 1) Highest priority: explicit CompanyAccessControl rules
+        access_rule = CompanyAccessControl.objects.filter(user=user).first()
+        if access_rule:
+            base_companies = list(access_rule.companies.all())
+            visible_ids = set()
+            for base_company in base_companies:
+                visible_ids.add(base_company.id)
+                visible_ids.update(
+                    Company._get_descendant_company_ids(base_company.id)
+                )
+            company_qs = Company.objects.filter(id__in=visible_ids).select_related(
+                "parent_company"
+            )
+        else:
+            # 2) Manager permission override (same idea as company_index)
+            if user.has_perm("base.view_company") and user.has_perm(
+                "base.change_employeeshiftschedule"
+            ):
+                company_qs = Company.objects.all().select_related("parent_company")
+            else:
+                # 3) Superuser hierarchy / 4) normal users
+                company_qs = Company.get_companies_for_user(user).select_related(
+                    "parent_company"
+                )
+
+        # Apply the same company / subcompany permission rule used in
+        # `company.views.company_index` so dropdown and cards match.
+        can_view_subcompanies = (
+            user.has_perm("base.view_company") and user.has_perm("base.view_subcompany")
+        )
+        if not can_view_subcompanies:
+            company_qs = company_qs.filter(parent_company__isnull=True)
+    company_list = list(company_qs)
+    annotate_company_metrics(company_list)
+    nav_company_hierarchy = build_company_hierarchy(company_list)
+    companies = [
+        [str(company.id), company.company, company.icon.url, False]
+        for company in company_list
+    ]
     companies = [
         [
             "all",
             "All Company",
-            "https://ui-avatars.com/api/?name=All+Company&background=random",
+            "https://ui-avatars.com/api/?name=All+Company&background=ffffff&color=5e17eb",
             False,
         ],
     ] + companies
     selected_company = request.session.get("selected_company")
+    selected_company_str = str(selected_company) if selected_company else ""
     company_selected = False
+    employee = getattr(request.user, "employee_get", None)
+    work_info = getattr(employee, "employee_work_info", None) if employee else None
+    user_company_instance = getattr(work_info, "company_id", None) if work_info else None
+    user_company_id = str(user_company_instance.id) if user_company_instance else ""
+
     if selected_company and selected_company == "all":
         companies[0][3] = True
         company_selected = True
@@ -74,12 +129,27 @@ def get_companies(request):
             if str(company[0]) == selected_company:
                 company[3] = True
                 company_selected = True
-    return {"all_companies": companies, "company_selected": company_selected}
+                break
+
+    selected_ids = set()
+    if selected_company_str:
+        selected_ids.add(selected_company_str)
+    elif user_company_id:
+        selected_ids.add(user_company_id)
+
+    for company in company_list:
+        company.is_nav_selected = str(company.id) in selected_ids
+
+    return {
+        "all_companies": companies,
+        "company_selected": company_selected,
+        "nav_company_hierarchy": nav_company_hierarchy,
+        "user_company_id": user_company_id,
+    }
 
 
 @login_required
-@hx_request_required
-@permission_required("base.change_company")
+@permission_required("base.view_company")
 def update_selected_company(request):
     """
     This method is used to update the selected company on the session
@@ -144,7 +214,11 @@ def update_selected_company(request):
         "id": company.id,
     }
     request.session["selected_company_instance"] = company
-    return HttpResponse("<script>window.location.reload();</script>")
+
+    # Support both HTMX and regular navigation:
+    if request.headers.get("HX-Request"):
+        return HttpResponse("<script>window.location.reload();</script>")
+    return redirect(previous_path or "/")
 
 
 urlpatterns.append(
@@ -170,12 +244,12 @@ def white_labelling_company(request):
             company = hq
 
         return {
-            "white_label_company_name": company.company if company else "Horilla",
+            "white_label_company_name": company.company if company else "GreaterHRMS",
             "white_label_company": company,
         }
     else:
         return {
-            "white_label_company_name": "Horilla",
+            "white_label_company_name": "GreaterHRMS",
             "white_label_company": None,
         }
 
@@ -207,6 +281,7 @@ def timerunner_enabled(request):
             app_label="attendance", model="attendancegeneralsetting"
         )
         first = AttendanceGeneralSetting.objects.first()
+        # print(first.__dict__)
     if first:
         enabled_timerunner = first.time_runner
     return {"enabled_timerunner": enabled_timerunner}
@@ -299,3 +374,26 @@ def enable_profile_edit(request):
             ACCESSBILITY_FEATURE.append(("profile_edit", _("Profile Edit Access")))
 
     return {"profile_edit_enabled": enable}
+
+
+def calculate_elapsed_seconds(request):
+    user = request.user
+    filter_obj = AttendanceActivityFilter(request.GET)
+    attendance_activities = filter_obj.qs
+    if user.is_authenticated:
+        latest_checkin = (attendance_activities.filter(employee_id=user.employee_get, clock_in__isnull=False).order_by('-attendance_date', '-clock_in').first())
+        
+        if latest_checkin:
+            # Combine date + time into a datetime object
+            latest_checkin_datetime = datetime.combine(
+                latest_checkin.attendance_date,
+                latest_checkin.clock_in
+            )
+
+            now = datetime.now()
+            elapsed_seconds = int((now - latest_checkin_datetime).total_seconds())
+            
+        else:
+            elapsed_seconds = 0
+        return {"elapsed_seconds": elapsed_seconds}
+    return {}

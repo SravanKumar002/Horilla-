@@ -128,7 +128,11 @@
       "modified_by": 1,
       "is_active": true,
       "department": "Managers",
-      "company_id": [1, 2, 3]
+      "company_id": [
+        1,
+        2,
+        3
+      ]
     }
   },
   {
@@ -1135,7 +1139,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1156,7 +1163,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1177,7 +1187,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1198,7 +1211,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1219,7 +1235,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1240,7 +1259,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1261,7 +1283,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1282,7 +1307,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1303,7 +1331,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1324,7 +1355,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1345,7 +1379,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1366,7 +1403,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1387,7 +1427,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1408,7 +1451,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1429,7 +1475,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1450,7 +1499,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1471,7 +1523,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1492,7 +1547,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1513,7 +1571,10 @@
       "rotate_after_day": 3,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1, "next_work_type_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1,
+        "next_work_type_index": 1
+      }
     }
   },
   {
@@ -1555,37 +1616,58 @@
   {
     "model": "base.employeeshiftday",
     "pk": 1,
-    "fields": { "day": "monday", "company_id": [] }
+    "fields": {
+      "day": "monday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshiftday",
     "pk": 2,
-    "fields": { "day": "tuesday", "company_id": [] }
+    "fields": {
+      "day": "tuesday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshiftday",
     "pk": 3,
-    "fields": { "day": "wednesday", "company_id": [] }
+    "fields": {
+      "day": "wednesday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshiftday",
     "pk": 4,
-    "fields": { "day": "thursday", "company_id": [] }
+    "fields": {
+      "day": "thursday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshiftday",
     "pk": 5,
-    "fields": { "day": "friday", "company_id": [] }
+    "fields": {
+      "day": "friday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshiftday",
     "pk": 6,
-    "fields": { "day": "saturday", "company_id": [] }
+    "fields": {
+      "day": "saturday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshiftday",
     "pk": 7,
-    "fields": { "day": "sunday", "company_id": [] }
+    "fields": {
+      "day": "sunday",
+      "company_id": []
+    }
   },
   {
     "model": "base.employeeshift",
@@ -1979,7 +2061,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2000,7 +2084,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2021,7 +2107,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2042,7 +2130,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2063,7 +2153,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 0 }
+      "additional_data": {
+        "next_shift_index": 0
+      }
     }
   },
   {
@@ -2084,7 +2176,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2105,7 +2199,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 0 }
+      "additional_data": {
+        "next_shift_index": 0
+      }
     }
   },
   {
@@ -2126,7 +2222,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2147,7 +2245,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 0 }
+      "additional_data": {
+        "next_shift_index": 0
+      }
     }
   },
   {
@@ -2168,7 +2268,9 @@
       "rotate_after_day": 1,
       "rotate_every_weekend": "monday",
       "rotate_every": "1",
-      "additional_data": { "next_shift_index": 1 }
+      "additional_data": {
+        "next_shift_index": 1
+      }
     }
   },
   {
@@ -2648,19 +2750,6 @@
   },
   {
     "model": "base.tags",
-    "pk": 2,
-    "fields": {
-      "created_at": "2025-07-22T08:42:23.547Z",
-      "created_by": 1,
-      "modified_by": 1,
-      "is_active": true,
-      "title": "Recruitment",
-      "color": "#fb8787",
-      "company_id": null
-    }
-  },
-  {
-    "model": "base.tags",
     "pk": 3,
     "fields": {
       "created_at": "2025-07-22T08:42:39.708Z",
@@ -2896,32 +2985,50 @@
   {
     "model": "base.dynamicpagination",
     "pk": 1,
-    "fields": { "user_id": 1, "pagination": 25 }
+    "fields": {
+      "user_id": 1,
+      "pagination": 25
+    }
   },
   {
     "model": "base.driverviewed",
     "pk": 1,
-    "fields": { "user": 1, "viewed": "dashboard" }
+    "fields": {
+      "user": 1,
+      "viewed": "dashboard"
+    }
   },
   {
     "model": "base.driverviewed",
     "pk": 2,
-    "fields": { "user": 1, "viewed": "settings" }
+    "fields": {
+      "user": 1,
+      "viewed": "settings"
+    }
   },
   {
     "model": "base.driverviewed",
     "pk": 3,
-    "fields": { "user": 1, "viewed": "pipeline" }
+    "fields": {
+      "user": 1,
+      "viewed": "pipeline"
+    }
   },
   {
     "model": "base.driverviewed",
     "pk": 4,
-    "fields": { "user": 13, "viewed": "dashboard" }
+    "fields": {
+      "user": 13,
+      "viewed": "dashboard"
+    }
   },
   {
     "model": "base.driverviewed",
     "pk": 5,
-    "fields": { "user": 13, "viewed": "pipeline" }
+    "fields": {
+      "user": 13,
+      "viewed": "pipeline"
+    }
   },
   {
     "model": "base.dashboardemployeecharts",
@@ -2966,7 +3073,10 @@
   {
     "model": "base.biometricattendance",
     "pk": 1,
-    "fields": { "is_installed": false, "company_id": null }
+    "fields": {
+      "is_installed": false,
+      "company_id": null
+    }
   },
   {
     "model": "base.holidays",

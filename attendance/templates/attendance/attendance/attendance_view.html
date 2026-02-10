@@ -8,7 +8,7 @@
     <div class="oh-tabs">
         <ul class="oh-tabs__tablist">
             <li class="oh-tabs__tab" data-target="#tab_1">
-                {% trans "Attendance To Validate " %}
+                {% trans "Attendance To Regularise " %}
                 <div class="oh-dropdown float-end" x-data="{open: false}">
                     <button class="oh-btn oh-stop-prop oh-btn--transparent oh-accordion-meta__btn" @click="open = !open"
                         @click.outside="open = false" title='{% trans "Actions" %}'>
@@ -18,13 +18,14 @@
                         <ul class="oh-dropdown__items">
                             {% if perms.attendance.change_attendance or request.user|is_reportingmanager %}
                                 <li class="oh-dropdown__item">
-                                    <a href="#" id="validateAttendances" class="oh-dropdown__link">{% trans "Validate" %}</a>
+                                    <a href="#" id="validateAttendances" class="oh-dropdown__link">{% trans "Regularise " %}</a>
                                 </li>
                             {% endif %}
                         </ul>
                     </div>
                 </div>
             </li>
+            {% if perms.attendance.change_attendance or request.user|is_reportingmanager %}
             <li class="oh-tabs__tab oh-tabs__tab" data-target="#tab_3">
                 {% trans "OT Attendances" %}
                 <div class="oh-dropdown float-end" x-data="{open: false}">
@@ -43,13 +44,42 @@
                     </div>
                 </div>
             </li>
+            {% endif %}
             <li class="oh-tabs__tab" data-target="#tab_2">
-                {% trans "Validated Attendances" %}
+                {% trans "Approved" %}
             </li>
         </ul>
         <div class="oh-tabs__contents" id="tab_contents">
             {% include 'attendance/attendance/tab_content.html' %}
         </div>
+        <!-- Modal for Reject Form -->
+        <div class="oh-modal" id="bigModal" role="dialog" aria-labelledby="bigModal" aria-hidden="true">
+            <div class="oh-modal__dialog">
+                <div class="oh-modal__dialog-header">
+                    <h2 class="oh-modal__dialog-title">{% trans "Details" %}</h2>
+                    <button class="oh-modal__close" aria-label="Close">
+                        <ion-icon name="close-outline"></ion-icon>
+                    </button>
+                </div>
+                <div class="oh-modal__dialog-body oh-modal__dialog-relative" id="bigModalTarget"></div>
+            </div>
+        </div>
+        <script>
+            // Listen for refreshAttendanceTab event
+            document.body.addEventListener('refreshAttendanceTab', function(event) {
+                // Get the URL from the data attribute
+                var url = document.body.getAttribute('data-refresh-url');
+                if (url) {
+                    // Use HTMX to fetch and update the tab content
+                    htmx.ajax('GET', url, {
+                        target: '#tab_contents',
+                        swap: 'innerHTML'
+                    });
+                    // Clear the data attribute
+                    document.body.removeAttribute('data-refresh-url');
+                }
+            });
+        </script>
     </div>
 </div>
 <span

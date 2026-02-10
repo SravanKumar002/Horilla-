@@ -29,6 +29,17 @@ def is_string(value):
     return isinstance(value, str)
 
 
+@register.filter(name="sub")
+def sub(value, arg):
+    """
+    Subtracts the arg from the value.
+    """
+    try:
+        return float(value) - float(arg)
+    except (ValueError, TypeError):
+        return 0
+
+
 @register.filter(name="checkminimumot")
 def checkminimumot(ot=None):
     """
@@ -325,3 +336,39 @@ def is_check_in_enabled(request):
 
     # Check if check-in is enabled
     return bool(attendance_settings and attendance_settings.enable_check_in)
+
+
+@register.filter(name="get_amount_by_title")
+def get_amount_by_title(data_list, title):
+    """
+    Filter to get amount from a list of dictionaries (allowances/deductions)
+    based on the title.
+    Usage: {{ payslip.pay_head_data.allowances|get_amount_by_title:"Overtime" }}
+    """
+    if not isinstance(data_list, list):
+        return 0.0
+    
+    # Normalize title for comparison
+    target_title = title.lower().strip()
+    
+    total_amount = 0.0
+    for item in data_list:
+        item_title = item.get('title', '').lower().strip()
+        # flexible matching
+        if target_title in item_title or item_title in target_title:
+             try:
+                 total_amount += float(item.get('amount', 0.0))
+             except (ValueError, TypeError):
+                 pass
+    
+    return total_amount
+
+@register.filter(name="get_key_value")
+def get_key_value(dictionary, key):
+    """
+    Filter to get a value from a dictionary by key.
+    Usage: {{ payslip.pay_head_data|get_key_value:"paid_days" }}
+    """
+    if not isinstance(dictionary, dict):
+        return None
+    return dictionary.get(key)

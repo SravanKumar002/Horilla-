@@ -1,4 +1,13 @@
 $(document).ready(function () {
+const customColors = [
+        "#5F489D",
+        "#E49394", 
+        "#AF9962", 
+        "rgb(75, 192, 192)", 
+        "rgb(153, 102, 255)",
+        "rgb(255, 159, 64)", 
+      ];
+
   //Todays leave count department wise chart
   if (document.getElementById("overAllLeave")){
   var myChart1 = document.getElementById("overAllLeave").getContext("2d");
@@ -43,7 +52,7 @@ $(document).ready(function () {
       if (overAllLeave){
         overAllLeave.data.labels = response.labels;
         overAllLeave.data.datasets[0].data = response.data;
-        overAllLeave.data.datasets[0].backgroundColor = null;
+        overAllLeave.data.datasets[0].backgroundColor = customColors;
         overAllLeave.update();
       }
     },
@@ -57,7 +66,7 @@ $(document).ready(function () {
       success: function (response) {
         overAllLeave.data.labels = response.labels;
         overAllLeave.data.datasets[0].data = response.data;
-        overAllLeave.data.datasets[0].backgroundColor = null;
+        overAllLeave.data.datasets[0].backgroundColor = customColors;
         overAllLeave.update();
       },
     });

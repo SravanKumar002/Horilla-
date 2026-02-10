@@ -1,0 +1,479 @@
+{% extends 'index.html' %} {% load static i18n %} {% block content %}
+<style>
+  .payslip-import-modal {
+    font-family: "Inter", sans-serif;
+  }
+
+  .year-select {
+    font-size: 16px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    outline: none;
+    width: 140px;
+    font-weight: 500;
+    transition: all 0.3s;
+  }
+
+  .year-select:focus {
+    border-color: #7A34AB;
+    box-shadow: 0 0 0 3px rgba(122, 52, 171, 0.1);
+  }
+
+  .note {
+    font-size: 14px;
+    color: #c45b00;
+    margin-bottom: 10px;
+    padding: 10px 15px;
+    background-color: #fff3e0;
+    border-left: 4px solid #ff9800;
+    border-radius: 6px;
+  }
+
+  /* Top Controls Section */
+  .top-controls {
+    display: flex;
+    align-items: center;
+    gap: 25px;
+    margin-top: 15px;
+    margin-bottom: 25px;
+    flex-wrap: wrap;
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .download-link,
+  .upload-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: all 0.3s;
+  }
+
+  .download-link:hover,
+  .upload-link:hover {
+    background-color: #e3f2fd;
+    text-decoration: none;
+  }
+
+  .upload-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .upload-wrapper p {
+    font-size: 12px;
+    color: #666;
+    margin: 0;
+    padding-left: 12px;
+  }
+
+  .submit-btn {
+    padding: 10px 24px;
+    background-color: #7A34AB;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    opacity: 0.6;
+    font-weight: 600;
+    font-size: 15px;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .submit-btn.enabled {
+    opacity: 1;
+    box-shadow: 0 4px 12px rgba(122, 52, 171, 0.3);
+  }
+
+  .submit-btn.enabled:hover {
+    background-color: #6a2d99;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(122, 52, 171, 0.4);
+  }
+
+  .submit-btn:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Main Container for Month Cards */
+  .months-main-card {
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    margin-top: 20px;
+    margin-bottom: 20px;
+  }
+
+  .months-header {
+    font-size: 20px;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #f0f0f0;
+  }
+
+  /* Grid months section */
+  .month-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+
+  .month-card {
+    background-color: #fafafa;
+    border-radius: 12px;
+    padding: 20px;
+    border: 2px solid #e8e8e8;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-align: center;
+  }
+
+  .month-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    border-color: #7A34AB;
+  }
+
+  .month-card.active {
+    background: linear-gradient(135deg, #7A34AB 0%, #9b59b6 100%);
+    color: #fff;
+    border-color: #7A34AB;
+    box-shadow: 0 6px 20px rgba(122, 52, 171, 0.3);
+  }
+
+  .month-card h4 {
+    margin: 0 0 10px 0;
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .month-card p {
+    margin: 6px 0;
+    font-size: 13px;
+    opacity: 0.85;
+  }
+
+  .month-status {
+    display: inline-block;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    background-color: #e0e0e0;
+    color: #555;
+    margin-top: 10px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .month-card.active .month-status {
+    background-color: rgba(255, 255, 255, 0.3);
+    color: #fff;
+  }
+
+  .alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+  }
+
+  .alert-success {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+  }
+
+  .alert-error {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+  }
+
+  @media (max-width: 1200px) {
+    .month-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .month-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .top-controls {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .month-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="oh-modal__dialog-header">
+  <h2 class="oh-modal__dialog-title" id="objectDetailsModalLabel">
+    {% trans "Import Payslips" %}
+  </h2>
+  <button class="oh-modal__close" aria-label="Close">
+    <ion-icon name="close-outline" role="img" class="md hydrated" aria-label="close outline"></ion-icon>
+  </button>
+</div>
+
+<div class="oh-modal__dialog-body oh-modal__dialog-relative payslip-import-modal">
+  <!-- Notes -->
+  <p class="note">
+    📌 Please upload an Excel file with employee_id and wage/basic_pay columns. Payslips will be automatically
+    calculated based on attendance and leave records.
+  </p>
+  <p class="note">
+    ⚠️ On upload, salary will be regenerated if already generated and not paid. Excel should contain: employee_id, wage
+    (or basic_pay), housing_allowance (optional), transport_allowance (optional), other_allowance (optional).
+  </p>
+
+  <!-- Alert Messages -->
+  <div id="alertContainer"></div>
+
+  <!-- Top Controls: Year Select, Download Template, Upload, Submit -->
+  <div class="top-controls">
+    <input type="number" id="yearSelect" class="year-select" placeholder="Select Year" min="2000" max="2100"
+      value="{{ current_year }}" oninput="debounceUpdateYear(this)" />
+
+    <a href="#" class="download-link" onclick="downloadTemplate(event)">
+      <span>📥</span> External components
+    </a>
+
+    <a href="#" class="download-link" onclick="downloadPayslips(event)">
+      <span>💾</span> Download Generated Payslips
+    </a>
+
+    <div class="upload-wrapper">
+      <label class="upload-link">
+        <span>📎</span> Attach Payslip Excel File
+        <input type="file" style="display: none" id="fileInput" accept=".xlsx,.xls,.csv"
+          onchange="enableSubmit(this)" />
+      </label>
+      <p>Max file size: 10MB | Format: .xlsx, .xls, .csv</p>
+    </div>
+
+    <button class="submit-btn" id="submitBtn" disabled onclick="submitImport()">Submit</button>
+  </div>
+
+  <!-- Main Card Container for All Months -->
+  <div class="months-main-card">
+    <div class="months-header">
+      Select Month for Payroll Processing
+    </div>
+
+    <!-- Month Grid (4x3) -->
+    <div class="month-grid" id="monthGrid">
+      {% for month_data in months_data %}
+      <div class="month-card {% if month_data.month_num == current_month %}active{% endif %}"
+        data-month="{{ month_data.month_num }}" onclick="selectMonth(this)">
+        <h4>{{ month_data.month_name }} {{ month_data.year }}</h4>
+        <p>{{ month_data.date_range }}</p>
+        <span class="month-status">{{ month_data.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+  // Adjust modal width for import interface
+  $(document).ready(function () {
+    var modalDialog = $('#objectDetailsModal .oh-modal__dialog');
+    if (modalDialog.length) {
+      modalDialog.css('max-width', '90%');
+      modalDialog.css('width', '1200px');
+    }
+  });
+
+  let selectedMonth = parseInt("{{ current_month|default:0 }}") || 0;
+  let selectedYear = parseInt("{{ current_year|default:0 }}") || 0;
+  let selectedFile = null;
+
+  // Debounce function for year input
+  let timeout = null;
+  function debounceUpdateYear(input) {
+    const year = input.value;
+    // Only reload if it looks like a valid year (4 digits)
+    if (year.length === 4 && year >= 2000 && year <= 2100) {
+      clearTimeout(timeout);
+      timeout = setTimeout(function () {
+        window.location.href = `{% url 'payslip-info-import' %}?year=${year}`;
+      }, 800); // 800ms delay to let user finish typing
+    }
+  }
+
+  // Active month selection
+  function selectMonth(card) {
+    document.querySelectorAll(".month-card").forEach((c) => c.classList.remove("active"));
+    card.classList.add("active");
+    selectedMonth = parseInt(card.dataset.month);
+    console.log("Selected Month:", selectedMonth);
+  }
+
+  // Enable submit when file chosen
+  function enableSubmit(input) {
+    const btn = document.getElementById("submitBtn");
+    if (input.files.length > 0) {
+      selectedFile = input.files[0];
+      btn.disabled = false;
+      btn.classList.add("enabled");
+    } else {
+      selectedFile = null;
+      btn.disabled = true;
+      btn.classList.remove("enabled");
+    }
+  }
+
+  // Download template (company-wise, server-generated)
+  function downloadTemplate(event) {
+    event.preventDefault();
+    // Uses the selected company from navbar (stored in session)
+    // and returns a CSV template prefilled with Employee Id & Name.
+    const url = '{% url "payslip-import-template" %}';
+    window.location.href = url;
+  }
+
+  // --- External Components UI & Logic ---
+  // Use the navbar-selected company (stored server-side). No extra company dropdown here.
+  document.addEventListener("DOMContentLoaded", function () {
+    const externalToggle = document.getElementById("external-components-toggle");
+    const externalList = document.getElementById("external-components-list");
+
+    if (!externalToggle || !externalList) return;
+
+    externalToggle.addEventListener("click", function (e) {
+      e.preventDefault();
+      // Fetch and download using server-selected company
+      fetch("{% url 'external-components-export' %}", {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to fetch external components");
+          return res.text();
+        })
+        .then((csv) => {
+          // Populate list for quick preview (first 10)
+          externalList.innerHTML = "";
+          const lines = csv.split("\n").slice(1).filter((l) => l.trim());
+          lines.slice(0, 10).forEach((line) => {
+            const parts = line.split(",");
+            const empId = (parts[0] || "").replace(/(^\"|\"$)/g, "");
+            const empName = (parts[1] || "").replace(/(^\"|\"$)/g, "");
+            const li = document.createElement("li");
+            li.textContent = `${empId} — ${empName}`;
+            externalList.appendChild(li);
+          });
+          externalList.classList.remove("d-none");
+
+          // Trigger download
+          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "external_components.csv";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        })
+        .catch((err) => {
+          console.error(err);
+          showAlert("{% trans 'Failed to fetch external components.' %}", "error");
+        });
+    });
+  });
+  // Download generated payslips
+  function downloadPayslips(event) {
+    event.preventDefault();
+    if (!selectedMonth || !selectedYear) {
+      showAlert('Please select a month and year first.', 'error');
+      return;
+    }
+
+    const url = '{% url "payslip-import-download" %}?month=' + selectedMonth + '&year=' + selectedYear;
+    window.location.href = url;
+  }
+
+  // Submit import
+  function submitImport() {
+    if (!selectedFile || !selectedMonth || !selectedYear) {
+      showAlert('Please select a file, month, and year.', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('month', selectedMonth);
+    formData.append('year', selectedYear);
+    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Processing...';
+
+    fetch('{% url "payslip-import-process" %}', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-CSRFToken': '{{ csrf_token }}'
+      }
+    })
+      .then(response => response.json())
+      .then(data => {
+        if (data.status === 'success') {
+          showAlert(data.message, 'success');
+          // Optionally reload page after 2 seconds
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        } else {
+          showAlert(data.message, 'error');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit';
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while processing the file.', 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+      });
+  }
+
+  // Show alert message
+  function showAlert(message, type) {
+    const alertContainer = document.getElementById('alertContainer');
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type === 'success' ? 'success' : 'error'}`;
+    alertDiv.textContent = message;
+    alertContainer.innerHTML = '';
+    alertContainer.appendChild(alertDiv);
+
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      alertDiv.remove();
+    }, 5000);
+  }
+</script>
+
+{% endblock content %}

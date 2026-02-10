@@ -120,14 +120,17 @@
 												>
 											</div>
 											{% else %}
+											{% url 'outlook_view_records' as outlook_url %} <!-- Added this to gracefully handle exceptions -->
+  											{% if outlook_url %}
 											<div class="oh-input-group">
 													<a
 													id="date"
-													href="{% url 'outlook_view_records' %}"
+													href="{{ outlook_url }}"
 													class="oh-inner-sidebar__link oh-dropdown__link"
 													>{% trans "Outlook Mail" %}</a
 												>
 											</div>
+										{% endif %}
 										{% endif %}
 											<div class="oh-input-group">
 												{% if perms.horilla_backup.view_googledrivebackup %}
@@ -213,7 +216,7 @@
 							</div>
 						</li>
 						<hr>
-						{% if "recruitment"|app_installed %}
+						<!-- {% if "recruitment"|app_installed %}
 						<li class="oh-inner-sidebar__item">
 							<div class="oh-accordion ms-2">
 								<div class="oh-accordion-header" style="font-size:16px;">
@@ -261,7 +264,7 @@
 														class="oh-inner-sidebar__link oh-dropdown__link"
 														>{% trans "Linkedin Integration" %}</a
 													>
-												{% comment %} {% endif %} {% endcomment %}
+												{% comment %} {% endif %} #} {% endcomment %}
 											</div>
 
 										</div>
@@ -270,7 +273,7 @@
 							</div>
 						</li>
 						<hr>
-						{% endif %}
+						{% endif %} -->
 
 						<li class="oh-inner-sidebar__item">
 							<div class="oh-accordion ms-2">
@@ -287,7 +290,7 @@
 														id="workType"
 														href="{% url 'work-type-view' %}"
 														class="oh-inner-sidebar__link oh-dropdown__link"
-														>{% trans "Work Type" %}</a
+														>{% trans "Employee Type" %}</a
 													>
 												{% endif %}
 											</div>
@@ -337,7 +340,7 @@
 														id="employeeType"
 														href="{% url 'employee-type-view' %}"
 														class="oh-inner-sidebar__link oh-dropdown__link"
-														>{% trans "Employee Type" %}</a
+														>{% trans "Employment Status" %}</a
 													>
 												{% endif %}
 											</div>
@@ -641,3 +644,4 @@
 </script>
 {% endif %}
 {% endblock content %}
+

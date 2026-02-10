@@ -1,6 +1,97 @@
 {% load static i18n %}
+<style>
+    /* Card Container */
+.leave-card-container {
+    background: #ffffff;
+    padding: 25px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(120, 63, 180, 0.15);
+    width: 100%;
+}
+ 
+/* Title */
+.leave-card-title {
+    color: #5A2CD4;
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 20px;
+}
+ 
+/* Each employee row */
+.leave-card-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid #e8d9fb;
+}
+ 
+/* Last row no border */
+.leave-card-item:last-child {
+    border-bottom: none;
+}
+ 
+/* Avatar */
+.avatar img {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+}
+ 
+/* Employee info */
+.emp-info {
+    flex: 1;
+    margin-left: 12px;
+}
+ 
+.emp-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #222;
+}
+ 
+.emp-dept {
+    font-size: 13px;
+    color: #777;
+}
+ 
+/* Leave badge */
+.leave-type-badge {
+    background: #E5D2FF;
+    color: #4C1EC6;
+    padding: 6px 15px;
+    font-size: 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+ 
+</style>
 {% if leaves %}
-    <div class="oh-card-dashboard__body">
+
+ {% for leave in leaves %}
+    <div class="leave-card-item" {% if perms.leave.view_leaverequest %}
+                            onclick="$('#objectDetailsModalW25').addClass('oh-modal--show');" data-target="#objectDetailsModalW25"
+                            hx-get="{% url 'one-request-view' leave.id %}?instances_ids={{requests_ids}}"
+                            hx-target="#objectDetailsModalW25Target"
+                        {% endif %} style="cursor:pointer">
+        <div class="avatar">
+            <img src="{{ leave.employee_id.get_avatar }}" alt="">
+        </div>
+ 
+        <div class="emp-info">
+            <div class="emp-name">{{ leave.employee_id.get_full_name }}</div>
+            <div class="emp-dept">{{ leave.employee_id.get_department }}</div>
+        </div>
+ 
+        <div class="leave-type-badge">
+            {{ leave.leave_type_id.name }}
+        </div>
+    </div>
+    {% endfor %}
+    <!-- <div class="oh-card-dashboard__body">
         <ul class="oh-card-dashboard__user-list" id="leaveEmployee">
             {% for leave in leaves %}
                 <li class="oh-card-dashboard__user-item" role="button">
@@ -19,7 +110,7 @@
                 </li>
             {% endfor %}
         </ul>
-    </div>
+    </div> -->
 {% elif today_holidays %}
     <div style="height: 380px; display:flex;align-items: center;justify-content: center;" class="">
         <div>

@@ -427,6 +427,11 @@ class GeneratePayslipForm(HorillaForm):
     )
     start_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
     end_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+    upload_file = forms.FileField(
+        label="Upload Excel",
+        required=False,
+        help_text="Optional: upload an Excel (.xlsx) containing employee identifiers to bulk-generate payslips.",
+    )
 
     def clean(self):
         cleaned_data = super().clean()
@@ -437,17 +442,17 @@ class GeneratePayslipForm(HorillaForm):
         if end_date < start_date:
             raise forms.ValidationError(
                 {
-                    "end_date": "The end date must be greater than or equal to the start date."
+                    "Error": "The end date must be greater than or equal to the start date."
                 }
             )
         if start_date > today:
             raise forms.ValidationError(
-                {"end_date": "The start date cannot be in the future."}
+                {"Error": "The start date cannot be in the future."}
             )
 
         if end_date > today:
             raise forms.ValidationError(
-                {"end_date": "The end date cannot be in the future."}
+                {"Error": "You can not generate payslips for the future dates."}
             )
         return cleaned_data
 
@@ -493,25 +498,26 @@ class PayrollSettingsForm(ModelForm):
 
 
 excel_columns = [
-    ("employee_id", _("Employee")),
+    ("employee_id", _("employee_id")),
+    ("Employee", _("Employee")),
     ("group_name", _("Batch")),
+    ("employee__employment_start_date", _("Employment Start Date")),
     ("start_date", _("Start Date")),
     ("end_date", _("End Date")),
-    ("contract_wage", _("Contract Wage")),
+    ("paid_days", _("Total Paid days")),
     ("basic_pay", _("Basic Pay")),
     ("gross_pay", _("Gross Pay")),
-    ("deduction", _("Deduction")),
     ("net_pay", _("Net Pay")),
+    ("pay_head_data__housing_allowance", _("Housing Allowances")),
+    ("pay_head_data__transport_allowance", _("Transport Allowances")),
+    ("pay_head_data__other_allowance", _("Other Allowances")),
+    ("pay_head_data__total_allowance", _("Total Allowances")),
+    ("pay_head_data__loss_of_pay", _("LOP")),
+    ("pay_head_data__total_other_deductions", _("Other Deductions")),
+    ("deduction", _("Total Deductions")),
     ("status", _("Status")),
-    ("employee_id__employee_bank_details__bank_name", _("Bank Name")),
-    ("employee_id__employee_bank_details__branch", _("Branch")),
-    ("employee_id__employee_bank_details__account_number", _("Account Number")),
-    ("employee_id__employee_bank_details__any_other_code1", _("Bank Code #1")),
-    ("employee_id__employee_bank_details__any_other_code2", _("Bank Code #2")),
-    ("employee_id__employee_bank_details__country", _("Country")),
-    ("employee_id__employee_bank_details__state", _("State")),
-    ("employee_id__employee_bank_details__city", _("City")),
 ]
+
 
 
 class PayslipExportColumnForm(forms.Form):
@@ -733,6 +739,52 @@ class LoanAccountForm(ModelForm):
 
         return cleaned_data
 
+
+class PayslipInlineUpdateForm(ModelForm):
+    """
+    ModelForm for inline payslip edits in the table view.
+    Only fields rendered as inputs in the table are editable here.
+    """
+
+    class Meta:
+        model = payroll.models.models.Payslip
+        fields = [
+            "basic_pay",
+            "housing_allowance",
+            "transport_allowance",
+            "other_allowance",
+            "deduction",
+        ]
+        widgets = {
+            "basic_pay": forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}),
+            "housing_allowance": forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}),
+            "transport_allowance": forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}),
+            "other_allowance": forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}),
+            "deduction": forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}),
+        }
+
+    # Additional fields from pay_head_data that aren't direct model fields
+    paid_days = forms.FloatField(required=False, label=_("Total Paid Days"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}))
+    loss_of_pay = forms.FloatField(required=False, label=_("Loss of Pay"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}))
+    overtime = forms.FloatField(required=False, label=_("Overtime"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}))
+    pretax_advanced_salary = forms.FloatField(
+        required=False, label=_("Salary Advance Loan Recovery"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"})
+    )
+    allowance_advanced_salary = forms.FloatField(
+        required=False, label=_("Salary Advance"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"})
+    )
+    bonus = forms.FloatField(required=False, label=_("Bonus"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}))
+    total_deductions = forms.FloatField(required=False, label=_("Total Deductions"), widget=forms.NumberInput(attrs={"class": "oh-input", "step": "0.01"}))
+
+    def clean(self):
+        cleaned = super().clean()
+        # Normalize all numeric fields to 0.0 if blank and round to 2 decimals
+        for key, value in list(cleaned.items()):
+            if value in (None, ""):
+                cleaned[key] = 0.0
+            elif isinstance(value, (int, float)):
+                cleaned[key] = round(float(value), 2)
+        return cleaned
 
 class AssetFineForm(LoanAccountForm):
     verbose_name = _("Asset Fine")

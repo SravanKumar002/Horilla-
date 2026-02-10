@@ -15,7 +15,7 @@ IMG_SRC = "images/ui/employees.svg"
 
 SUBMENUS = [
     {
-        "menu": trans("Profile"),
+        "menu": trans("My Profile"),
         "redirect": reverse("employee-profile"),
         "accessibility": "employee.sidebar.profile_accessibility",
     },
@@ -29,24 +29,24 @@ SUBMENUS = [
         "redirect": reverse("document-request-view"),
         "accessibility": "employee.sidebar.document_accessibility",
     },
-    {
-        "menu": trans("Shift Requests"),
-        "redirect": reverse("shift-request-view"),
-    },
-    {
-        "menu": trans("Work Type Requests"),
-        "redirect": reverse("work-type-request-view"),
-    },
-    {
-        "menu": trans("Rotating Shift Assign"),
-        "redirect": reverse("rotating-shift-assign"),
-        "accessibility": "employee.sidebar.rotating_shift_accessibility",
-    },
-    {
-        "menu": trans("Rotating Work Type Assign"),
-        "redirect": reverse("rotating-work-type-assign"),
-        "accessibility": "employee.sidebar.rotating_work_type_accessibility",
-    },
+    # {
+    #     "menu": trans("Shift Requests"),
+    #     "redirect": reverse("shift-request-view"),
+    # },
+    # {
+    #     "menu": trans("Work Type Requests"),
+    #     "redirect": reverse("work-type-request-view"),
+    # },
+    # {
+    #     "menu": trans("Rotating Shift Assign"),
+    #     "redirect": reverse("rotating-shift-assign"),
+    #     "accessibility": "employee.sidebar.rotating_shift_accessibility",
+    # },
+    # {
+    #     "menu": trans("Rotating Work Type Assign"),
+    #     "redirect": reverse("rotating-work-type-assign"),
+    #     "accessibility": "employee.sidebar.rotating_work_type_accessibility",
+    # },
     {
         "menu": trans("Disciplinary Actions"),
         "redirect": reverse("disciplinary-actions"),
@@ -88,16 +88,36 @@ def rotating_work_type_accessibility(request, submenu, user_perms, *args, **kwar
     return request.user.has_perm(
         "base.view_rotatingworktypeassign"
     ) or is_reportingmanager(request.user)
-
-
+    
+    
 def employee_accessibility(request, submenu, user_perms, *args, **kwargs):
-    """
-    Employee accessibility method
-    """
-    cache_key = request.session.session_key + "accessibility_filter"
     employee = getattr(request.user, "employee_get", None)
-    return (
-        is_reportingmanager(request.user)
-        or request.user.has_perm("employee.view_employee")
-        or check_is_accessible("employee_view", cache_key, employee)
-    )
+
+    # SUPERUSER allowed
+    if request.user.is_superuser:
+        return True
+    
+    # REPORTING MANAGER allowed
+    if is_reportingmanager(request.user):
+        return True
+
+    # has permission?
+    if request.user.has_perm("employee.view_employee"):
+        return True
+
+    # Everyone else blocked
+    return False
+
+
+# def employee_accessibility(request, submenu, user_perms, *args, **kwargs):
+#     """
+#     Employee accessibility method
+#     """
+#     cache_key = request.session.session_key + "accessibility_filter"
+#     employee = getattr(request.user, "employee_get", None)
+#     return (
+#         is_reportingmanager(request.user)
+#         or request.user.has_perm("employee.view_employee")
+#         or check_is_accessible("employee_view", cache_key, employee)
+#     )
+

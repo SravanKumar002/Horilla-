@@ -15,6 +15,21 @@
         {% elif form.candidate_id %}
             <input type="hidden" name="candidate_id" value="{{form.candidate_id.value}}" />
         {% endif %}
+        {% if form.title %}
+            <input type="hidden" name="title" value="{{form.title.value}}" />
+        {% elif document.title %}
+            <input type="hidden" name="title" value="{{document.title}}" />
+        {% endif %}
+        {% if form.document_request_id %}
+            <input type="hidden" name="document_request_id" value="{{form.document_request_id.value}}" />
+        {% elif document.document_request_id_id %}
+            <input type="hidden" name="document_request_id" value="{{document.document_request_id_id}}" />
+        {% endif %}
+        {% if form.status %}
+            <input type="hidden" name="status" value="{{form.status.value}}" />
+        {% elif document.status %}
+            <input type="hidden" name="status" value="{{document.status}}" />
+        {% endif %}
         {{ form.non_field_errors }}
 
         <div class="row">

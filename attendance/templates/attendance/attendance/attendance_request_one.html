@@ -60,6 +60,17 @@
 
         <div class="oh-timeoff-modal__stats-container mt-3 mb-3">
             <div class="oh-timeoff-modal__stat">
+                <span class="oh-timeoff-modal__stat-title">{% trans "Type" %}</span>
+                <span class="oh-timeoff-modal__stat-count">{{ type_display }}</span>
+            </div>
+            <div class="oh-timeoff-modal__stat" style="margin-left: 20px;">
+                <span class="oh-timeoff-modal__stat-title">{% trans "Status" %}</span>
+                <span class="oh-timeoff-modal__stat-count">{{ status_display }}</span>
+            </div>
+        </div>
+
+        <div class="oh-timeoff-modal__stats-container mt-3 mb-3">
+            <div class="oh-timeoff-modal__stat">
                 <span class="oh-timeoff-modal__stat-title">{% trans "Check In" %}</span>
                 <span
                     class="oh-timeoff-modal__stat-count timeformat_changer">{{attendance_request.attendance_clock_in}}</span>
@@ -103,6 +114,12 @@
             <div class="oh-timeoff-modal__stat" style="margin-left: 20px;">
                 <span class="oh-timeoff-modal__stat-title">{% trans "At Work" %}</span>
                 <span class="oh-timeoff-modal__stat-count">{{at_work}}</span>
+            </div>
+        </div>
+        <div class="oh-timeoff-modal__stats-container mt-3 mb-3">
+            <div class="oh-timeoff-modal__stat">
+                <span class="oh-timeoff-modal__stat-title">{% trans "Pending Hour" %}</span>
+                <span class="oh-timeoff-modal__stat-count">{{ pending_hour }}</span>
             </div>
         </div>
         <div class="oh-timeoff-modal__stats-container mt-3 mb-3">

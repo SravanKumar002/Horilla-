@@ -1,0 +1,78 @@
+<form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <label>Year</label>
+    <input type="number" name="year" class="form-control" required />
+
+    <label>Month</label>
+    <input type="number" name="month" class="form-control" required />
+
+    <label>Upload Excel</label>
+    <input type="file" name="excel_file" accept=".xlsx,.xls" class="form-control" required />
+
+    <button type="submit" class="btn btn-primary mt-3">Run Payroll</button>
+</form>
+
+
+
+<!-- ------------------give me file name run_payroll.html -------------------- -->
+<!-- FORM START -->
+  <form method="POST" enctype="multipart/form-data" id="payrollForm">
+    {% csrf_token %}
+
+    <!-- Top Controls -->
+    <div class="top-controls">
+
+      <!-- Year Input -->
+      <input type="number" id="yearSelect" name="year" class="year-select" placeholder="Select Year" min="2000"
+        max="2100" required />
+
+      <!-- Download Template -->
+      <a href="{% url 'download-external-template' %}" class="download-link">
+        <span>📥</span> Download External Components Template
+      </a>
+
+      <!-- Upload File -->
+      <div class="upload-wrapper">
+        <label class="upload-link">
+          <span>📎</span> Attach External Components
+          <input type="file" style="display: none" id="fileInput" name="excel_file" accept=".xlsx,.xls" required
+            onchange="enableSubmit(this)" />
+        </label>
+        <p>Max file size: 2MB</p>
+      </div>
+
+      <!-- Hidden input for selected month -->
+      <input type="hidden" name="month" id="selectedMonth" required>
+
+      <!-- Submit -->
+      <button type="submit" class="submit-btn" id="submitBtn" disabled>
+        Submit
+      </button>
+    </div>
+
+    <!-- Month Selection UI -->
+    <div class="months-main-card">
+      <div class="months-header">Select Month for Payroll Processing</div>
+
+      <div class="month-grid
+
+" id="monthGrid">
+        {% for m in months %}
+        <div class="month-card  " onclick="selectMonth({{ m.number }}, this)">
+          <h4>{{ m.name }} {{ m.year }}</h4>
+          <p>{{ m.range }}</p>
+          <span class="month-status">{{ m.status }}</span>
+        </div>
+        {% endfor %}
+        </div>
+
+
+    </div>  </form>
+  <!-- FORM END -->
+</div>
+<script>
+  // Default current year
+  document.getElementById('yearSelect').value = new Date().getFullYear();   
+</script>
+<!-- ------------------------------------------ -->

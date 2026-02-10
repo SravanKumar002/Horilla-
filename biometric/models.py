@@ -140,14 +140,14 @@ class BiometricDevices(HorillaModel):
                 required_fields["zk_password"] = _(
                     "The password is required for ZKTeco Biometric Device."
                 )
-            else:
-                try:
-                    int(self.zk_password)
-                except ValueError:
-                    required_fields["zk_password"] = _(
-                        "The password must be an integer (numeric) value for\
-                            ZKTeco Biometric Device."
-                    )
+           # else:
+            #    try:
+             #       int(self.zk_password)
+              #  except ValueError:
+               #     required_fields["zk_password"] = _(
+                #        "The password must be an integer (numeric) value for\
+                 #           ZKTeco Biometric Device."
+                  #  )
 
         if self.machine_type in ("cosec", "dahua"):
             if not self.bio_username:

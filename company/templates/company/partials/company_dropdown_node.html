@@ -1,0 +1,75 @@
+{% load i18n %}
+{# Show "All Company" root option for admins/superusers with full company access - only at top level and only once #}
+{% if level == 0 %}
+  {% if request.user.is_superuser or request.user.is_staff and perms.base.view_company and perms.base.view_subcompany %}
+    {% with request.session.selected_company as selected_company_id %}
+      <div class="company-dropdown-node" style="margin-left: 0;" x-data="{ open: false }">
+        <div class="company-dropdown-card {% if selected_company_id == 'all' %}is-active{% endif %}">
+          <div class="company-dropdown-card-main">
+            <div class="company-dropdown-info">
+              <img src="https://ui-avatars.com/api/?name=All+Company&background=7A34AB&color=ffffff"
+                   alt="{% trans 'All Company Logo' %}" />
+              <div>
+                <a class="company-dropdown-name" style="cursor: pointer;"
+                   href="{% url 'update-selected-company' %}?company_id=all&next={{ request.path }}">
+                  {% trans "All Company" %}
+                </a>
+              </div>
+            </div>
+            <div class="company-dropdown-actions">
+              {% if selected_company_id == 'all' %}
+                <span class="company-dropdown-selected" title="{% trans 'Currently Selected' %}">
+                  <ion-icon name="checkmark-circle-outline"></ion-icon>
+                </span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endwith %}
+  {% endif %}
+{% endif %}
+
+{% for node in nodes %}
+  <div class="company-dropdown-node" style="margin-left: {% widthratio level 1 16 %}px;" x-data="{ open: false }">
+    <div class="company-dropdown-card {% if node.company.is_nav_selected %}is-active{% endif %}">
+      <div class="company-dropdown-card-main">
+        <div class="company-dropdown-info">
+          <img src="{{ node.company.icon.url }}" alt="{% trans 'Company Logo' %}" />
+          <div>
+            <a class="company-dropdown-name" style="cursor: pointer;"
+              href="{% url 'update-selected-company' %}?company_id={{ node.company.id }}&next={{ request.path }}">
+              {{ node.company.company }}
+            </a>
+          </div>
+        </div>
+        <div class="company-dropdown-actions">
+          {% if node.company.is_nav_selected %}
+            <span class="company-dropdown-selected" title="{% trans 'Currently Selected' %}">
+              <ion-icon name="checkmark-circle-outline"></ion-icon>
+            </span>
+          {% endif %}
+      
+          {% if node.children %}
+            <button
+              type="button"
+              class="company-dropdown-toggle"
+              @click.stop="open = !open"
+              :class="{'expanded': open}"
+              aria-label="{% trans 'Toggle sub-companies' %}"
+            >
+              <ion-icon name="chevron-down-outline"></ion-icon>
+            </button>
+          {% endif %}
+        </div>
+      </div>
+   
+    </div>
+    {% if node.children %}
+      <div class="company-dropdown-children" x-show="open" x-cloak>
+        {% include "company/partials/company_dropdown_node.html" with nodes=node.children level=level|add:"1" %}
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+

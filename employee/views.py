@@ -18,9 +18,11 @@ import operator
 import os
 import threading
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from urllib.parse import parse_qs
 
 import pandas as pd
+from openpyxl.styles import Font, PatternFill
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
@@ -93,6 +95,7 @@ from employee.methods.methods import (
     bulk_create_work_types,
     error_data_template,
     get_ordered_badge_ids,
+    optimize_reporting_manager_lookup,
     process_employee_records,
     set_initial_password,
     valid_import_file_headers,
@@ -300,6 +303,7 @@ def profile_edit_access(request, emp_id):
     return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/"))
 
 
+
 @login_required
 @enter_if_accessible(
     feature="employee_detailed_view",
@@ -310,21 +314,62 @@ def employee_view_individual(request, obj_id, **kwargs):
     """
     This method is used to view profile of an employee.
     """
+    print("DEBUG employee_view_individual: obj_id =", obj_id)
+    print("DEBUG employee_view_individual: User =", request.user.username)
+    
     try:
         employee = Employee.objects.get(id=obj_id)
+        print("DEBUG employee_view_individual: Employee found in active queryset")
     except ObjectDoesNotExist:
+        print("DEBUG employee_view_individual: Employee not in active queryset, trying entire()")
         try:
             employee = Employee.objects.entire().get(id=obj_id)
             company = getattr(
                 getattr(employee, "employee_work_info", None), "company_id", None
             )
             company_id = getattr(company, "pk", None)
-            if company_id != request.session["selected_company"]:
+            print("DEBUG employee_view_individual: Employee company_id =", company_id)
+            print("DEBUG employee_view_individual: selected_company =", request.session.get("selected_company"))
+            
+            # Check if user has access to this company (for Company Admin)
+            has_employee_view_perm = request.user.has_perm("employee.view_employee")
+            is_global_admin = request.user.is_staff or request.user.is_superuser
+            
+            if has_employee_view_perm or is_global_admin:
+                employee_obj = getattr(request.user, "employee_get", None)
+                user_company = None
+                if employee_obj:
+                    user_company = employee_obj.get_company()
+                else:
+                    user_company = getattr(request.user, "company", None)
+                
+                print("DEBUG employee_view_individual: user_company =", user_company)
+                
+                if user_company:
+                    # Company Admin: check if employee's company is in accessible companies
+                    accessible_companies = Company.get_companies_for_user(request.user)
+                    accessible_company_ids = list(accessible_companies.values_list("id", flat=True))
+                    print("DEBUG employee_view_individual: accessible_company_ids =", accessible_company_ids)
+                    
+                    if company_id not in accessible_company_ids:
+                        messages.error(
+                            request, "Employee is not working in your accessible companies."
+                        )
+                        return redirect("employee-view")
+                else:
+                    # Global admin: allow access
+                    print("DEBUG employee_view_individual: Global admin - allowing access")
+                    pass
+            
+            # Also check selected_company if it's not "all"
+            selected_company = request.session.get("selected_company")
+            if selected_company and selected_company != "all" and company_id != selected_company:
                 messages.error(
                     request, "Employee is not working in the selected company."
                 )
                 return redirect("employee-view")
         except Exception as e:
+            print("DEBUG employee_view_individual: Exception =", str(e))
             return render(request, "404.html", status=404)
 
     employee_leaves = (
@@ -336,7 +381,49 @@ def employee_view_individual(request, obj_id, **kwargs):
     )
     # Retrieve the filtered employees from the session
     filtered_employee_ids = request.session.get("filtered_employees", [])
+    print("DEBUG employee_view_individual: filtered_employee_ids from session =", len(filtered_employee_ids))
+    
+    # If session is empty, rebuild it based on user's accessible companies
+    if not filtered_employee_ids:
+        print("DEBUG employee_view_individual: Session empty, rebuilding filtered employees")
+        has_employee_view_perm = request.user.has_perm("employee.view_employee")
+        is_global_admin = request.user.is_staff or request.user.is_superuser
+        
+        if has_employee_view_perm or is_global_admin:
+            employee_obj = getattr(request.user, "employee_get", None)
+            user_company = None
+            if employee_obj:
+                user_company = employee_obj.get_company()
+            else:
+                user_company = getattr(request.user, "company", None)
+            
+            if user_company:
+                # Company Admin: get employees from accessible companies
+                accessible_companies = Company.get_companies_for_user(request.user)
+                company_ids = list(accessible_companies.values_list("id", flat=True))
+                filtered_employees = Employee.objects.filter(
+                    employee_work_info__company_id__in=company_ids,
+                    is_active=True
+                )
+                filtered_employee_ids = list(filtered_employees.values_list("id", flat=True))
+                request.session["filtered_employees"] = filtered_employee_ids
+                print("DEBUG employee_view_individual: Company Admin - Rebuilt filtered_employee_ids count =", len(filtered_employee_ids))
+            else:
+                # Global admin: get all employees
+                filtered_employees = Employee.objects.filter(is_active=True)
+                filtered_employee_ids = list(filtered_employees.values_list("id", flat=True))
+                request.session["filtered_employees"] = filtered_employee_ids
+                print("DEBUG employee_view_individual: Global admin - Rebuilt filtered_employee_ids count =", len(filtered_employee_ids))
+        else:
+            # Normal employee: only their own record
+            employee_obj = getattr(request.user, "employee_get", None)
+            if employee_obj:
+                filtered_employee_ids = [employee_obj.id]
+                request.session["filtered_employees"] = filtered_employee_ids
+                print("DEBUG employee_view_individual: Normal employee - Rebuilt filtered_employee_ids")
+    
     filtered_employees = Employee.objects.filter(id__in=filtered_employee_ids)
+    print("DEBUG employee_view_individual: filtered_employees count =", filtered_employees.count())
 
     request_ids_str = json.dumps(
         [
@@ -370,7 +457,6 @@ def employee_view_individual(request, obj_id, **kwargs):
             else:
                 previous_id = requests_ids[index - 1]
             break
-
     context = {
         "employee": employee,
         "previous": previous_id,
@@ -386,11 +472,17 @@ def employee_view_individual(request, obj_id, **kwargs):
     else:
         context["employee_leaves"] = employee_leaves
 
+    print("DEBUG employee_view_individual: context =", context)
+    print("DEBUG employee_view_individual: employee_id =", employee.id)
+    print("DEBUG employee_view_individual: previous_id =", previous_id)
+    print("DEBUG employee_view_individual: next_id =", next_id)
+    print("DEBUG employee_view_individual: requests_ids count =", len(requests_ids))
     return render(
         request,
         "employee/view/individual.html",
         context,
     )
+
 
 
 @login_required
@@ -748,31 +840,108 @@ def file_upload(request, id):
     Returns: return document_form template
     """
 
-    document_item = Document.objects.get(id=id)
+    try:
+        document_item = Document.objects.get(id=id)
+    except Document.DoesNotExist:
+        messages.error(request, _("Document not found."))
+        return HttpResponse("<script>window.location.reload();</script>")
+    
     form = DocumentUpdateForm(instance=document_item)
     if request.method == "POST":
-        form = DocumentUpdateForm(request.POST, request.FILES, instance=document_item)
+        # Create a mutable copy of POST data to include missing required fields
+        post_data = request.POST.copy()
+        # Ensure required fields are included from the instance if not in POST
+        if 'title' not in post_data and document_item.title:
+            post_data['title'] = document_item.title
+        if 'document_request_id' not in post_data and document_item.document_request_id_id:
+            post_data['document_request_id'] = document_item.document_request_id_id
+        if 'status' not in post_data and document_item.status:
+            post_data['status'] = document_item.status
+        if 'employee_id' not in post_data and document_item.employee_id_id:
+            post_data['employee_id'] = document_item.employee_id_id
+        
+        form = DocumentUpdateForm(post_data, request.FILES, instance=document_item)
         if form.is_valid():
-            form.save()
-            messages.success(request, _("Document uploaded successfully"))
             try:
-                notify.send(
-                    request.user.employee_get,
-                    recipient=request.user.employee_get.get_reporting_manager().employee_user_id,
-                    verb=f"{request.user.employee_get} uploaded a document",
-                    verb_ar=f"قام {request.user.employee_get} بتحميل مستند",
-                    verb_de=f"{request.user.employee_get} hat ein Dokument hochgeladen",
-                    verb_es=f"{request.user.employee_get} subió un documento",
-                    verb_fr=f"{request.user.employee_get} a téléchargé un document",
-                    redirect=reverse(
-                        "employee-view-individual",
-                        kwargs={"obj_id": request.user.employee_get.id},
-                    ),
-                    icon="chatbox-ellipses",
-                )
-            except:
-                pass
-            return HttpResponse("<script>window.location.reload();</script>")
+                saved_document = form.save()
+                messages.success(request, _("Document uploaded successfully"))
+                
+                # Send upload notification
+                try:
+                    notify.send(
+                        request.user.employee_get,
+                        recipient=request.user.employee_get.get_reporting_manager().employee_user_id,
+                        verb=f"{request.user.employee_get} uploaded a document",
+                        verb_ar=f"قام {request.user.employee_get} بتحميل مستند",
+                        verb_de=f"{request.user.employee_get} hat ein Dokument hochgeladen",
+                        verb_es=f"{request.user.employee_get} subió un documento",
+                        verb_fr=f"{request.user.employee_get} a téléchargé un document",
+                        redirect=reverse(
+                            "employee-view-individual",
+                            kwargs={"obj_id": request.user.employee_get.id},
+                        ),
+                        icon="chatbox-ellipses",
+                    )
+                except:
+                    pass
+                
+                # Send expiry notification if expiry_date is set/changed
+                expiry_date = saved_document.expiry_date
+                if expiry_date:
+                    try:
+                        employee = saved_document.employee_id
+                        recipients = []
+                        
+                        # Add the employee's user to recipients
+                        if employee and hasattr(employee, 'employee_user_id') and employee.employee_user_id:
+                            recipients.append(employee.employee_user_id)
+                        
+                        # Add reporting manager to recipients
+                        reporting_manager = employee.get_reporting_manager() if employee else None
+                        if reporting_manager and hasattr(reporting_manager, 'employee_user_id') and reporting_manager.employee_user_id:
+                            manager_user = reporting_manager.employee_user_id
+                            if manager_user not in recipients:
+                                recipients.append(manager_user)
+                        
+                        # Format expiry date for display
+                        expiry_date_formatted = expiry_date.strftime('%B %d, %Y')
+                        
+                        # Send notifications to all recipients
+                        if recipients:
+                            notify.send(
+                                employee if employee else request.user.employee_get,
+                                recipient=recipients,
+                                verb=f"Your document '{saved_document.title}' is set to expire on {expiry_date_formatted}",
+                                verb_ar=f"سينتهي صلاحية المستند '{saved_document.title}' في {expiry_date_formatted}",
+                                verb_de=f"Ihr Dokument '{saved_document.title}' läuft am {expiry_date_formatted} ab",
+                                verb_es=f"Su documento '{saved_document.title}' está programado para expirar el {expiry_date_formatted}",
+                                verb_fr=f"Votre document '{saved_document.title}' est prévu pour expirer le {expiry_date_formatted}",
+                                redirect=reverse(
+                                    "employee-view-individual",
+                                    kwargs={"obj_id": employee.id if employee else request.user.employee_get.id},
+                                ),
+                                icon="chatbox-ellipses",
+                            )
+                    except Exception as e:
+                        logger.error(f"Error sending expiry notification: {e}")
+                
+                return HttpResponse("<script>window.location.reload();</script>")
+            except Exception as e:
+                logger.error(f"Error saving document: {e}")
+                messages.error(request, _("Error saving document. Please try again."))
+        else:
+            # Form validation failed - display errors
+            error_messages = []
+            for field, errors in form.errors.items():
+                for error in errors:
+                    if field == '__all__':
+                        error_messages.append(str(error))
+                    else:
+                        field_label = form.fields[field].label if field in form.fields else field
+                        error_messages.append(f"{field_label}: {error}")
+            
+            if error_messages:
+                messages.error(request, _("Please correct the following errors: ") + " ".join(error_messages))
 
     context = {"form": form, "document": document_item}
     return render(request, "tabs/htmx/document_form.html", context=context)
@@ -1047,6 +1216,49 @@ def paginator_qry(qryset, page_number):
     return qryset
 
 
+# @login_required
+# @enter_if_accessible(
+#     feature="employee_view",
+#     perm="employee.view_employee",
+#     method=_check_reporting_manager,
+# )
+# def employee_view(request):
+#     """
+#     This method is used to render template for view all employee
+#     """
+#     view_type = request.GET.get("view")
+#     previous_data = request.GET.urlencode()
+#     page_number = request.GET.get("page")
+#     error_message = request.session.pop("error_message", None)
+
+#     queryset = Employee.objects.filter()
+#     filter_obj = EmployeeFilter(request.GET, queryset=queryset).qs
+#     if request.GET.get("is_active") != "False":
+#         filter_obj = filter_obj.filter(is_active=True)
+
+#     update_fields = BulkUpdateFieldForm()
+#     data_dict = parse_qs(previous_data)
+#     get_key_instances(Employee, data_dict)
+#     emp = Employee.objects.filter()
+
+#     # Store the employees in the session
+#     request.session["filtered_employees"] = [employee.id for employee in queryset]
+
+#     return render(
+#         request,
+#         "employee_personal_info/employee_view.html",
+#         {
+#             "data": paginator_qry(filter_obj, page_number),
+#             "pd": previous_data,
+#             "f": EmployeeFilter(),
+#             "update_fields_form": update_fields,
+#             "view_type": view_type,
+#             "filter_dict": data_dict,
+#             "emp": emp,
+#             "gp_fields": EmployeeReGroup.fields,
+#             "error_message": error_message,
+#         },
+#     )
 @login_required
 @enter_if_accessible(
     feature="employee_view",
@@ -1055,25 +1267,71 @@ def paginator_qry(qryset, page_number):
 )
 def employee_view(request):
     """
-    This method is used to render template for view all employee
+    This method is used to render template for viewing employees.
+    Only admin/manager can see all.
+    Normal employee can see only their own profile.
     """
     view_type = request.GET.get("view")
     previous_data = request.GET.urlencode()
     page_number = request.GET.get("page")
     error_message = request.session.pop("error_message", None)
 
-    queryset = Employee.objects.filter()
+    print("DEBUG employee_view: User =", request.user.username)
+    print("DEBUG employee_view: is_staff =", request.user.is_staff)
+    print("DEBUG employee_view: is_superuser =", request.user.is_superuser)
+    
+    # Check permissions
+    has_employee_view_perm = request.user.has_perm("employee.view_employee")
+    is_global_admin = request.user.is_staff or request.user.is_superuser
+    
+    if is_global_admin or has_employee_view_perm:
+        # 1. Check if Superuser first (Global View - No restrictions)
+        if request.user.is_superuser:
+            queryset = Employee.objects.all()
+            print("DEBUG employee_view: Superuser detected - showing all employees")
+        
+        else:
+            # 2. Check if user is a Company Admin/Manager (Restricted to company)
+            employee = getattr(request.user, "employee_get", None)
+            user_company = None
+            if employee:
+                user_company = employee.get_company()
+            else:
+                user_company = getattr(request.user, "company", None)
+            
+            if user_company:
+                # Get accessible companies (own company + sub-companies)
+                accessible_companies = Company.get_companies_for_user(request.user)
+                company_ids = list(accessible_companies.values_list("id", flat=True))
+                queryset = Employee.objects.filter(
+                    employee_work_info__company_id__in=company_ids
+                )
+                print(f"DEBUG employee_view: Company Admin - IDs: {company_ids}")
+            else:
+                # Fallback for staff users without a company assigned
+                queryset = Employee.objects.all()
+                print("DEBUG employee_view: Staff/Manager without specific company - showing all")
+    else:
+        # 3. Normal employee: show only their own record
+        employee = getattr(request.user, "employee_get", None)
+        if not employee:
+            return render(request, "error.html", {"message": _("Employee record not found.")})
+        queryset = Employee.objects.filter(id=employee.id)
+        print("DEBUG employee_view: Normal employee - showing own record only")
+
+    # Filtering logic
     filter_obj = EmployeeFilter(request.GET, queryset=queryset).qs
+    
+    # Apply active filter unless explicitly asked for inactive
     if request.GET.get("is_active") != "False":
         filter_obj = filter_obj.filter(is_active=True)
 
     update_fields = BulkUpdateFieldForm()
     data_dict = parse_qs(previous_data)
     get_key_instances(Employee, data_dict)
-    emp = Employee.objects.filter()
 
-    # Store the employees in the session
-    request.session["filtered_employees"] = [employee.id for employee in queryset]
+    # Store filtered IDs in session
+    request.session["filtered_employees"] = [emp.id for emp in filter_obj]
 
     return render(
         request,
@@ -1085,7 +1343,7 @@ def employee_view(request):
             "update_fields_form": update_fields,
             "view_type": view_type,
             "filter_dict": data_dict,
-            "emp": emp,
+            "emp": queryset,
             "gp_fields": EmployeeReGroup.fields,
             "error_message": error_message,
         },
@@ -1955,11 +2213,14 @@ def employee_delete(request, obj_id):
                 for contract in contracts:
                     if contract.contract_status != "active":
                         contract.delete()
-        user = employee.employee_user_id
-        try:
-            user.delete()
-        except AttributeError:
-            employee.delete()
+        user = getattr(employee, 'employee_user_id', None)
+        if user:
+            try:
+                user.delete()
+            except Exception:
+                pass  # User might already be deleted or doesn't exist
+        # Always delete the employee (this will mark is_active=False if using soft delete)
+        employee.delete()
         messages.success(request, _("Employee deleted"))
 
     except Employee.DoesNotExist:
@@ -2437,14 +2698,25 @@ def employee_import(request):
         data_frame = pd.read_excel(file)
         # Convert the DataFrame to a list of dictionaries
         employee_dicts = data_frame.to_dict("records")
+        # Get reporting manager lookup dictionary for efficient lookups
+        reporting_manager_dict = optimize_reporting_manager_lookup()
         # Create or update Employee objects from the list of dictionaries
         error_list = []
+        success_count = 0
         for employee_dict in employee_dicts:
             try:
-                phone = employee_dict["phone"]
-                email = employee_dict["email"]
-                employee_full_name = employee_dict["employee_full_name"]
-                existing_user = User.objects.filter(username=email).first()
+                phone = employee_dict.get("phone", "")
+                email = employee_dict.get("email", "")
+                employee_full_name = employee_dict.get("employee_full_name", "")
+                reporting_manager_name = employee_dict.get("reporting_manager", "").strip() if employee_dict.get("reporting_manager") else ""
+                
+                if not email or not employee_full_name:
+                    error_list.append(employee_dict)
+                    continue
+                
+                existing_user = User.objects.filter(username=email, is_active=True).first()
+                employee = None
+                
                 if existing_user is None:
                     employee_first_name = employee_full_name
                     employee_last_name = ""
@@ -2457,7 +2729,7 @@ def employee_import(request):
                     user = User.objects.create_user(
                         username=email,
                         email=email,
-                        password=str(phone).strip(),
+                        password=str(phone).strip() if phone else "password123",
                         is_superuser=False,
                     )
                     employee = Employee()
@@ -2467,17 +2739,52 @@ def employee_import(request):
                     employee.email = email
                     employee.phone = phone
                     employee.save()
-            except Exception:
+                    success_count += 1
+                else:
+                    # Employee already exists, get the employee object
+                    employee = getattr(existing_user, 'employee_get', None)
+                    if employee:
+                        success_count += 1
+                
+                # Create or update EmployeeWorkInformation if Reporting Manager is provided
+                if employee and reporting_manager_name:
+                    reporting_manager_obj = None
+                    # Check if reporting manager name contains a space (format: "First Last")
+                    if isinstance(reporting_manager_name, str) and " " in reporting_manager_name:
+                        if reporting_manager_name in reporting_manager_dict:
+                            reporting_manager_obj = reporting_manager_dict[reporting_manager_name]
+                    
+                    if reporting_manager_obj:
+                        # Check if work info already exists for this employee
+                        work_info, created = EmployeeWorkInformation.objects.get_or_create(
+                            employee_id=employee,
+                            defaults={
+                                "email": email,
+                                "reporting_manager_id": reporting_manager_obj,
+                            }
+                        )
+                        if not created:
+                            # Update existing work info with reporting manager
+                            work_info.reporting_manager_id = reporting_manager_obj
+                            if not work_info.email:
+                                work_info.email = email
+                            work_info.save()
+                    else:
+                        # Reporting manager not found - log warning but don't fail the import
+                        logger.warning(f"Reporting Manager '{reporting_manager_name}' not found for employee {email}")
+            except Exception as e:
+                logger.error(f"Error importing employee {employee_dict.get('email', 'unknown')}: {e}")
                 error_list.append(employee_dict)
         return HttpResponse(
-            """
+            f"""
     <div class='alert-success p-3 border-rounded'>
-        Employee data has been imported successfully.
+        Employee data has been imported successfully. {success_count} employee(s) imported.
+        {f'{len(error_list)} error(s) occurred.' if error_list else ''}
     </div>
 
     """
         )
-    data_frame = pd.DataFrame(columns=["employee_full_name", "email", "phone"])
+    data_frame = pd.DataFrame(columns=["employee_full_name", "email", "phone", "reporting_manager"])
     # Export the DataFrame to an Excel file
     response = HttpResponse(content_type="application/ms-excel")
     response["Content-Disposition"] = 'attachment; filename="employee_template.xlsx"'
@@ -2549,15 +2856,36 @@ def work_info_import_file(request):
             "Location",
             "Date Joining",
             "Basic Salary",
-            "Salary Hour",
+            "Housing Allowance",
+            "Transport Allowance",
+            "Other Allowance",
+            "Total Salary",
+            "Salary Per Hour",
             "Contract End Date",
             "Company",
         ]
     )
 
+    # Create Excel file in memory
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        data_frame.to_excel(writer, index=False, sheet_name='Sheet1')
+        workbook = writer.book
+        worksheet = writer.sheets['Sheet1']
+        
+        # Create purple fill style for headers with white font
+        purple_fill = PatternFill(start_color="7A3CF0", end_color="7A3CF0", fill_type="solid")
+        white_font = Font(color="FFFFFF", bold=True)
+        
+        # Apply purple background and white font to header row (row 1)
+        for cell in worksheet[1]:
+            cell.fill = purple_fill
+            cell.font = white_font
+    
+    output.seek(0)
     response = HttpResponse(content_type="application/ms-excel")
     response["Content-Disposition"] = 'attachment; filename="work_info_template.xlsx"'
-    data_frame.to_excel(response, index=False)
+    response.write(output.read())
     return response
 
 
@@ -2634,12 +2962,48 @@ def work_info_import(request):
                 else None
             )
 
+            # Extract specific error messages from error_list for display
+            error_messages = []
+            if error_list:
+                for error_record in error_list:
+                    # Get record identifier (Badge ID or Email)
+                    badge_id = error_record.get("Badge ID", error_record.get("badge_id", ""))
+                    email = error_record.get("Email", error_record.get("email", ""))
+                    
+                    # Collect all error messages for this record
+                    record_errors = []
+                    for key, value in error_record.items():
+                        if key.endswith("Error") and value:
+                            record_errors.append(str(value))
+                    
+                    # Format error message with record identifier
+                    if record_errors:
+                        if badge_id:
+                            error_msg = f"Badge ID '{badge_id}'" + (f" (Email: {email})" if email else "")
+                        elif email:
+                            error_msg = f"Email '{email}'"
+                        else:
+                            error_msg = "Record"
+                        
+                        error_msg += f": {'; '.join(record_errors)}"
+                        error_messages.append(error_msg)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_error_messages = []
+            for msg in error_messages:
+                if msg not in seen:
+                    seen.add(msg)
+                    unique_error_messages.append(msg)
+
             context = {
                 "created_count": created_count,
                 "total_count": created_count + len(error_list),
                 "error_count": len(error_list),
                 "model": _("Employees"),
                 "path_info": path_info,
+                "error_messages": unique_error_messages[:10],  # Limit to first 10 errors to avoid overwhelming UI
+                "has_more_errors": len(unique_error_messages) > 10,
             }
             result = render_to_string("import_popup.html", context)
             result += """
@@ -2686,6 +3050,7 @@ def work_info_export(request):
         "employee_work_info__work_type_id": "employee_work_info__work_type_id__work_type",
         "employee_work_info__reporting_manager_id": "employee_work_info__reporting_manager_id__get_full_name",
         "employee_work_info__employee_type_id": "employee_work_info__employee_type_id__employee_type",
+        "employee_work_info__total_salary_calculated": "employee_work_info__total_salary",
     }
     employees = EmployeeFilter(request.GET).qs
     employees = filtersubordinatesemployeemodel(
@@ -2736,7 +3101,18 @@ def work_info_export(request):
                 except Exception:
                     value = ""
 
-            data = str(value) if value is not None else ""
+            # Handle Decimal and numeric values (e.g., total_salary)
+            if value is not None:
+                # Check if it's a Decimal type (from decimal.Decimal)
+                if hasattr(value, '__class__') and 'Decimal' in value.__class__.__name__:
+                    data = str(float(value))
+                # Check if it's a numeric type
+                elif isinstance(value, (int, float, complex)):
+                    data = str(value)
+                else:
+                    data = str(value)
+            else:
+                data = ""
 
             if isinstance(value, date):
                 try:
@@ -2753,9 +3129,27 @@ def work_info_export(request):
 
             employees_data[column_name].append(data)
     data_frame = pd.DataFrame(data=employees_data)
+    
+    # Create Excel file in memory
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        data_frame.to_excel(writer, index=False, sheet_name='Sheet1')
+        workbook = writer.book
+        worksheet = writer.sheets['Sheet1']
+        
+        # Create purple fill style for headers with white font
+        purple_fill = PatternFill(start_color="7A3CF0", end_color="7A3CF0", fill_type="solid")
+        white_font = Font(color="FFFFFF", bold=True)
+        
+        # Apply purple background and white font to header row (row 1)
+        for cell in worksheet[1]:
+            cell.fill = purple_fill
+            cell.font = white_font
+    
+    output.seek(0)
     response = HttpResponse(content_type="application/ms-excel")
     response["Content-Disposition"] = 'attachment; filename="employee_export.xlsx"'
-    data_frame.to_excel(response, index=False)
+    response.write(output.read())
 
     return response
 
@@ -2865,6 +3259,77 @@ def joining_today_count(request):
             is_active=True,
         ).count()
     return HttpResponse(newbies_today)
+
+
+# admin dashboard
+@login_required
+def joiners_this_month(request):
+    EmployeeWorkInformation = get_horilla_model_class(
+        app_label="employee", model="employeeworkinformation"
+    )
+ 
+    today = date.today()
+ 
+    count = EmployeeWorkInformation.objects.filter(
+        date_joining__year=today.year,
+        date_joining__month=today.month,
+        employee_id__is_active=True  # ensure employee is active
+    ).count()
+ 
+    return HttpResponse(count)
+ 
+@login_required
+def joiners_ytd(request):
+    EmployeeWorkInformation = get_horilla_model_class(
+        app_label="employee", model="employeeworkinformation"
+    )
+ 
+    today = date.today()
+    first_day = date(today.year, 1, 1)
+ 
+    count = EmployeeWorkInformation.objects.filter(
+        date_joining__gte=first_day,
+        date_joining__lte=today,
+        employee_id__is_active=True
+    ).count()
+ 
+    return HttpResponse(count)
+ 
+@login_required
+def left_this_month(request):
+    EmployeeWorkInformation = get_horilla_model_class(
+        app_label="employee", model="employeeworkinformation"
+    )
+ 
+    today = date.today()
+    year = today.year
+    month = today.month
+ 
+    count = EmployeeWorkInformation.objects.filter(
+        contract_end_date__year=year,
+        contract_end_date__month=month,
+        employee_id__is_active=False  # employee is no longer active
+    ).count()
+ 
+    return HttpResponse(count)
+ 
+@login_required
+def left_ytd(request):
+    EmployeeWorkInformation = get_horilla_model_class(
+        app_label="employee", model="employeeworkinformation"
+    )
+ 
+    today = date.today()
+    first_day = date(today.year, 1, 1)
+ 
+    count = EmployeeWorkInformation.objects.filter(
+        contract_end_date__gte=first_day,
+        contract_end_date__lte=today,
+        employee_id__is_active=False
+    ).count()
+ 
+    return HttpResponse(count)
+
 
 
 @login_required

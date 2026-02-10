@@ -167,6 +167,7 @@ sidebar_urls = [
     "asset-pivot",
     "pms-report",
     "pms-pivot",
+    "company",
 ]
 remove_urls = [
     "feedback-detailed-view",
@@ -184,16 +185,13 @@ user_breadcrumbs = {}
 def breadcrumbs(request):
     base_url = request.build_absolute_uri("/")
     company = white_labelling_company(request)["white_label_company_name"]
-
     # Initialize breadcrumbs in the session if not already present
     if "breadcrumbs" not in request.session:
         request.session["breadcrumbs"] = [
             {"url": base_url, "name": company, "found": True}
         ]
-
     try:
         breadcrumbs = request.session["breadcrumbs"]
-
         qs = request.META.get("QUERY_STRING", "")
         pairs = qs.split("&")
         filtered_pairs = [pair for pair in pairs if "=" in pair and pair.split("=")[1]]
@@ -253,7 +251,7 @@ def breadcrumbs(request):
             request.session["breadcrumbs"].clear()
             breadcrumbs.append({"url": base_url, "name": company, "found": True})
 
-        if len(parts) > 1:
+        if len(parts) >= 1:
             last_path = parts[-1]
             if (
                 last_path in sidebar_urls

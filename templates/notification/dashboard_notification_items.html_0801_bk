@@ -1,0 +1,101 @@
+{% load i18n static %}
+
+{% if actionable_notifications %}
+{% for item in actionable_notifications %}
+<div class="notification-item" data-notification-id="{{ item.notification_id }}">
+  <div class="notification-header">
+    <img src="{{ item.avatar }}" alt="{{ item.employee_name }}" class="notification-avatar" loading="lazy" />
+    <div class="notification-info">
+      <div class="notification-title">
+        <span class="employee-name">{{ item.employee_name }}</span>
+        <span class="notification-text">{{ item.message }}</span>
+      </div>
+
+      {% if item.label %}
+      <div class="notification-badge">
+        {{ item.label }}
+      </div>
+      {% endif %}
+
+      {% if item.meta %}
+      <div class="notification-meta">
+        {% for meta_line in item.meta %}
+        {% if meta_line %}
+        <span>{{ meta_line }}</span>{% if not forloop.last %}&nbsp;•&nbsp;{% endif %}
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if item.comment %}
+      <div class="notification-comment">
+        <strong>{% trans "Comment" %}:</strong>
+        {{ item.comment|truncatechars:95 }}
+      </div>
+      {% endif %}
+
+      {% if item.timestamp %}
+      <div class="notification-date">
+        {{ item.timestamp|date:"M d, H:i" }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="notification-actions">
+    {% if item.type == "leave" %}
+    <div class="action-buttons">
+      {% if item.approve_url %}
+      <a class="notif-btn approve" href="{{ item.approve_url }}" title="{% trans 'Approve' %}"
+        data-confirm-message="{% trans 'Do you want to Approve this leave request?' %}"
+        onclick="event.stopPropagation();return confirm(this.dataset.confirmMessage);">
+        <ion-icon name="checkmark-circle-outline"></ion-icon>Approve
+      </a>
+      {% endif %}
+
+      {% if item.reject_url %}
+      <a class="notif-btn reject" data-toggle="oh-modal-toggle" data-target="#bigModal" hx-get="{{ item.reject_url }}"
+        hx-target="#bigModalTarget" title="{% trans 'Reject' %}">
+        <ion-icon name="close-circle-outline"></ion-icon>Reject
+      </a>
+      {% endif %}
+      {% else %}
+      <div class="action-buttons">
+        {% if item.approve_url %}
+        <a class="notif-btn approve" href="{{ item.approve_url }}">
+          <ion-icon name="checkmark-circle-outline"></ion-icon>
+          {% trans "Approve" %}
+        </a>
+        {% endif %}
+
+        {% if item.reject_url %}
+        <a class="notif-btn reject" href="{{ item.reject_url }}">
+          <ion-icon name="close-circle-outline"></ion-icon>
+          {% trans "Reject" %}
+        </a>
+        {% endif %}
+        {% endif %}
+
+        {% if item.view_url %}
+        <a class="notif-btn view-form" href="{{ item.view_url }}" data-toggle="oh-modal-toggle" data-target="#bigModal"
+          hx-get="{{ item.view_url }}" hx-target="#bigModalTarget" hx-swap="innerHTML" data-hide-header="true">
+          <ion-icon name="document-outline"></ion-icon>
+          {% trans "View Form" %}
+        </a>
+
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="oh-navbar__notification-empty">
+  <img src="{% static 'images/ui/happy.svg' %}" alt="{% trans 'All caught up' %}" width="50" height="50"
+    loading="lazy" />
+  <span class="oh-navbar__notification-empty-title">{% trans "All caught up!" %}</span>
+  <span class="oh-navbar__notification-empty-desc">
+    {% trans "You have no actionable notifications at the moment." %}
+  </span>
+</div>
+{% endif %}

@@ -18,6 +18,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path, re_path
+from base import views as base_views 
 
 import notifications.urls
 
@@ -29,7 +30,9 @@ def health_check(request):
 
 
 urlpatterns = [
+
     path("admin/", admin.site.urls),
+    path("under-construction/", base_views.under_construction, name="under_construction"),
     path("accounts/", include("django.contrib.auth.urls")),
     path("accounts/", include("django.contrib.auth.urls")),
     path("", include("base.urls")),

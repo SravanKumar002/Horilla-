@@ -1,0 +1,110 @@
+{% load i18n %}
+{% load static %}
+
+{% if days %}
+<div class="oh-sticky-table__table oh-table--sortable">
+    <div class="oh-sticky-table__thead">
+        <div class="oh-sticky-table__tr">
+            <div class="oh-sticky-table__th">{% trans "Date" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Day" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Type" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Check-In" %}</div>
+            <div class="oh-sticky-table__th">{% trans "In Date" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Check-Out" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Out Date" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Shift" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Work Type" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Min Hour" %}</div>
+            <div class="oh-sticky-table__th">{% trans "At Work" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Pending Hour" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Overtime" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Penalties" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Status" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Actions" %}</div>
+        </div>
+    </div>
+    <div class="oh-sticky-table__tbody">
+        {% for day in days %}
+        <div class="oh-sticky-table__tr">
+            <div class="oh-sticky-table__td dateformat_changer">{{ day.date|date:"M. j, Y" }}</div>
+            <div class="oh-sticky-table__td">{{ day.date|date:"l" }}</div>
+            <div class="oh-sticky-table__td">
+                {% if day.attendance %}
+                {% if day.types %}
+                {% for t in day.types %}{{ t }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                {% else %}
+                <span class="oh-badge oh-badge--success">{% trans "On Time" %}</span>
+                {% endif %}
+                {% else %}
+                <span class="oh-text--muted">-</span>
+                {% endif %}
+            </div>
+            <div class="oh-sticky-table__td timeformat_changer">{{ day.attendance.attendance_clock_in if day.attendance
+                else "-" }}</div>
+            <div class="oh-sticky-table__td dateformat_changer">{{ day.attendance.attendance_clock_in_date if
+                day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td timeformat_changer">{{ day.attendance.attendance_clock_out if day.attendance
+                else "-" }}</div>
+            <div class="oh-sticky-table__td dateformat_changer">{{ day.attendance.attendance_clock_out_date if
+                day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td">{{ day.attendance.shift_id if day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td">{{ day.attendance.work_type_id if day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td">{{ day.attendance.minimum_hour if day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td">{{ day.attendance.attendance_worked_hour if day.attendance else "-" }}
+            </div>
+            <div class="oh-sticky-table__td">{{ day.attendance.hours_pending if day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td">{{ day.attendance.attendance_overtime if day.attendance else "-" }}</div>
+            <div class="oh-sticky-table__td">
+                {% if day.penalties %}
+                <div
+                    style="background-color: rgba(229, 79, 56, 0.036); border: 2px solid rgb(229, 79, 56); border-radius: 18px; padding: 6px; font-weight: bold;">
+                    {% trans "Penalties" %} : {{ day.penalties }}
+                </div>
+                {% else %}
+                <span class="oh-text--muted">-</span>
+                {% endif %}
+            </div>
+            <div class="oh-sticky-table__td">
+                {% if day.status == 'present' %}
+                <span class="oh-badge oh-badge--success">{{ day.status_display }}</span>
+                {% elif day.status == 'half-day' %}
+                <span class="oh-badge oh-badge--warning">{{ day.status_display }}</span>
+                {% elif day.status == 'weekoff' %}
+                <span class="oh-badge oh-badge--info">{{ day.status_display }}</span>
+                {% elif day.status == 'leave' or day.status == 'leave-full' %}
+                <span class="oh-badge oh-badge--info">{{ day.status_display }}</span>
+                {% elif day.status == 'public-holiday' %}
+                <span class="oh-badge oh-badge--info">{{ day.status_display }}</span>
+                {% elif day.status == 'future' %}
+                <span class="oh-text--muted">{{ day.status_display }}</span>
+                {% elif day.status == 'not-joined' %}
+                <span class="oh-text--muted">{{ day.status_display }}</span>
+                {% else %}
+                <span class="oh-text--muted">{{ day.status_display }}</span>
+                {% endif %}
+            </div>
+            <div class="oh-sticky-table__td">
+                <div class="oh-btn-group">
+                    {% if day.attendance %}
+                    <a class="oh-btn oh-btn--light-bkg w-300" title="{% trans 'View' %}"><ion-icon name="eye-outline"
+                            role="img"></ion-icon></a>
+                    {% else %}
+                    <a class="oh-btn oh-btn--light-bkg w-300" title="{% trans 'View' %}"
+                        style="pointer-events: none; opacity: 0.5;"><ion-icon name="eye-outline"
+                            role="img"></ion-icon></a>
+                    {% endif %}
+                    <a class="" title="{% trans 'Regularize' %}" onclick="event.stopPropagation();"
+                        data-toggle="oh-modal-toggle" data-target="#objectCreateModal"
+                        hx-get="{% url 'request-new-attendance' %}?attendance_id={% if day.attendance %}{{ day.attendance.id }}{% endif %}&attendance_date={{ day.date|date:'Y-m-d' }}&hide_fields=employee_id,attendance_date"
+                        hx-target="#objectCreateModalTarget"><span name="regularize">{% trans 'Regularize' %}</span></a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div>
+    <p class="oh-text--muted">{% trans "No dates available for this month." %}</p>
+</div>
+{% endif %}

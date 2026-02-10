@@ -1,28 +1,239 @@
-{% load static %}
 {% load i18n %}
-<div id="multCompany" class="oh-dropdown" x-data="{open: false}" @click="open = !open" title="{% trans 'Companies' %}">
+<div id="multCompany" class="oh-dropdown" x-data="{open: false}" title="{% trans 'Companies' %}">
     <div class="oh-navbar__action-icons">
-        <a href="#" class="oh-navbar__action-icons-link">
-            <ion-icon name="business"></ion-icon>
-        </a>
-        <div class="oh-dropdown__menu oh-dropdown__menu--right" x-show="open"
-            @click.outside="open = false" style="display:none; margin-top:115%;">
-            <ul class="oh-dropdown__items">
-                {% for company in all_companies %}
-                    <li class="oh-dropdown__item">
-                        <a hx-get="{% url 'update-selected-company' %}?company_id={{company.0}}&next={{ request.path }}"class="oh-dropdown__link">
-                            <img src="{{company.2}}" class="oh-dropdown__lang-icon" style="border-radius: 50%;" />
-                            {{company.1}}
-                            {% if company.3 %}
-                                <ion-icon name="checkmark-circle-outline" style="position: relative; top: 3.3px; color: green; font-size: 1.2em;"></ion-icon>
-                            {% endif %}
-                            {% if not company_selected and request.user.employee_get.employee_work_info.company_id.id == company.0 %}
-                                <ion-icon name="checkmark-circle-outline" style="position: relative; top: 3.3px; color: green; font-size: 1.2em;"></ion-icon>
-                            {% endif %}
-                        </a>
-                    </li>
-                {% endfor %}
-            </ul>
+        <button type="button" class="oh-navbar__action-icons-link company-dropdown-trigger"
+            @click.stop.prevent="open = !open" :aria-expanded="open.toString()">
+           <i class="mdi mdi-domain" style="color: #ffffff; font-size: 24px !important;"></i>
+
+        </button>
+        <div class="oh-dropdown__menu oh-dropdown__menu--right company-dropdown-panel" x-show="open" x-cloak
+            @click.outside="open = false" @keydown.escape.window="open = false" style="display:none; margin-top:115%;">
+            <div class="company-dropdown-header">
+                <button type="button" class="company-dropdown-close" @click="open = false"
+                    aria-label="{% trans 'Close company switcher' %}">
+                    <ion-icon name="close-outline"></ion-icon>
+                </button>
+            </div>
+            {# All-company summary card hidden by logic as requested #}
+            <div class="company-dropdown-section company-dropdown-section--tree">
+                {% if nav_company_hierarchy %}
+                <div class="company-dropdown-tree">
+                    {% include "company/partials/company_dropdown_node.html" with nodes=nav_company_hierarchy level=0 %}
+                </div>
+                {% else %}
+                <p class="company-dropdown-empty">
+                    {% trans "No companies available." %}
+                </p>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
+
+<style>
+    [x-cloak] {
+        display: none !important;
+    }
+
+    .company-dropdown-panel {
+        width: 420px;
+        max-height: 520px;
+        overflow-y: auto;
+        padding: 1.25rem;
+        border-radius: 16px;
+        box-shadow: 0 20px 45px rgba(18, 32, 53, 0.25);
+        background: #fff;
+    }
+
+    .company-dropdown-trigger {
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: inherit;
+    }
+
+    .company-dropdown-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .company-dropdown-title {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0;
+        color: #1f1235;
+    }
+
+    .company-dropdown-subtitle {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin: 0.25rem 0 0;
+    }
+
+    .company-dropdown-close {
+        border: none;
+        background: #f3e8ff;
+        color: #7a34ab;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+
+    .company-dropdown-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .company-dropdown-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        padding: 0.9rem 1rem;
+        background: #fdfbff;
+        margin-bottom: 0.75rem;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .company-dropdown-card.is-active {
+        border-color: #7a34ab;
+        box-shadow: 0 6px 18px rgba(122, 52, 171, 0.15);
+    }
+
+    .company-dropdown-card-main {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .company-dropdown-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .company-dropdown-info img {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+
+    .company-dropdown-name {
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin: 0;
+        color: #1f1235;
+    }
+
+    .company-dropdown-date {
+        font-size: 0.8rem;
+        margin: 0.15rem 0 0;
+        color: #6b7280;
+    }
+
+    .company-dropdown-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .company-dropdown-select {
+        border: none;
+        background: #7a34ab;
+        color: #fff;
+        padding: 0.45rem 0.85rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: background 0.2s ease;
+    }
+
+    .company-dropdown-select:hover {
+        background: #692d93;
+    }
+
+    .company-dropdown-selected ion-icon {
+        color: #22c55e;
+        font-size: 1.2rem;
+    }
+
+    .company-dropdown-meta {
+        font-size: 0.78rem;
+        color: #6b7280;
+        margin: 0.5rem 0 0;
+    }
+
+    .company-dropdown-section-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #6b21a8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.75rem;
+    }
+
+    .company-dropdown-tree {
+        padding-right: 0.25rem;
+    }
+
+    .company-dropdown-node {
+        margin-bottom: 0.65rem;
+    }
+
+    .company-dropdown-node:last-child {
+        margin-bottom: 0;
+    }
+
+    .company-dropdown-children {
+        margin-left: 1rem;
+        padding-left: 0.75rem;
+        border-left: 1px dashed #d6bbfb;
+    }
+
+    .company-dropdown-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        margin-right: 0.75rem;
+    }
+
+    .company-dropdown-toggle {
+        border: none;
+        background: #f3e8ff;
+        color: #7a34ab;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+    }
+
+    .company-dropdown-toggle.expanded {
+        transform: rotate(180deg);
+    }
+
+    .company-dropdown-empty {
+        font-size: 0.85rem;
+        color: #94a3b8;
+        margin: 0;
+    }
+
+    @media (max-width: 576px) {
+        .company-dropdown-panel {
+            width: 100%;
+            max-width: calc(100vw - 2rem);
+        }
+    }
+</style>

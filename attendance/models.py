@@ -325,9 +325,13 @@ class Attendance(HorillaModel):
         """
         This method will returns difference between minimum_hour and attendance_worked_hour
         """
-        minimum_hours = strtime_seconds(self.minimum_hour)
-        worked_hour = strtime_seconds(self.attendance_worked_hour)
-        pending_seconds = minimum_hours - worked_hour
+        # Ensure minimum_hour and attendance_worked_hour have valid values
+        minimum_hour = self.minimum_hour if self.minimum_hour else "00:00"
+        worked_hour = self.attendance_worked_hour if self.attendance_worked_hour else "00:00"
+        
+        minimum_hours = strtime_seconds(minimum_hour)
+        worked_hour_seconds = strtime_seconds(worked_hour)
+        pending_seconds = minimum_hours - worked_hour_seconds
         if pending_seconds < 0:
             return "00:00"
         pending_hours = format_time(pending_seconds)
@@ -345,16 +349,20 @@ class Attendance(HorillaModel):
         """
         Calculate and update attendance overtime and worked seconds.
         """
+        # Ensure we have valid time strings
+        worked_hour = self.attendance_worked_hour if self.attendance_worked_hour else "00:00"
+        minimum_hour = self.minimum_hour if self.minimum_hour else "00:00"
+        
         self.attendance_overtime = format_time(
             max(
                 0,
                 (
-                    strtime_seconds(self.attendance_worked_hour)
-                    - strtime_seconds(self.minimum_hour)
+                    strtime_seconds(worked_hour)
+                    - strtime_seconds(minimum_hour)
                 ),
             )
         )
-        self.at_work_second = strtime_seconds(self.attendance_worked_hour)
+        self.at_work_second = strtime_seconds(worked_hour)
         self.overtime_second = strtime_seconds(self.attendance_overtime)
 
     def handle_overtime_conditions(self):
@@ -376,49 +384,62 @@ class Attendance(HorillaModel):
             ):
                 self.attendance_overtime_approve = True
 
-    def save(self, *args, **kwargs):
-        self.update_attendance_overtime()
-        self.attendance_day = EmployeeShiftDay.objects.get(
-            day=self.attendance_date.strftime("%A").lower()
-        )
-        prev_attendance_approved = False
-        self.adjust_minimum_hour()
-
-        # Handle overtime cutoff and auto-approval
-        self.handle_overtime_conditions()
-
-        if self.pk is not None:
-            # Get the previous values of the boolean field
-            prev_state = Attendance.objects.get(pk=self.pk)
-            prev_attendance_approved = prev_state.attendance_overtime_approve
-
-        # super().save(*args, **kwargs)  #commend this line, it take too much time to complete
-        employee_ot = self.employee_id.employee_overtime.filter(
-            month=self.attendance_date.strftime("%B").lower(),
-            year=self.attendance_date.year,
-        ).first()
-        if employee_ot:
-            # Update if exists
-            self.update_ot(employee_ot)
+    def calculate_worked_hour(self):
+        """
+        Calculate attendance_worked_hour from clock_in and clock_out times.
+        """
+        if self.attendance_clock_in and self.attendance_clock_out and \
+           self.attendance_clock_in_date and self.attendance_clock_out_date:
+            try:
+                from attendance.methods.utils import parse_datetime
+                clock_in_dt = parse_datetime(
+                    str(self.attendance_clock_in_date),
+                    str(self.attendance_clock_in)
+                )
+                clock_out_dt = parse_datetime(
+                    str(self.attendance_clock_out_date),
+                    str(self.attendance_clock_out)
+                )
+                if clock_in_dt and clock_out_dt:
+                    total_seconds = (clock_out_dt - clock_in_dt).total_seconds()
+                    if total_seconds >= 0:
+                        self.attendance_worked_hour = format_time(int(total_seconds))
+                    else:
+                        self.attendance_worked_hour = "00:00"
+                else:
+                    # If parsing failed, set default
+                    if not self.attendance_worked_hour:
+                        self.attendance_worked_hour = "00:00"
+            except Exception as e:
+                # If calculation fails, keep existing value or default
+                if not self.attendance_worked_hour:
+                    self.attendance_worked_hour = "00:00"
         else:
-            # Create and update in one call
-            employee_ot = self.create_ot()
-            self.update_ot(employee_ot)
-        approved = self.attendance_overtime_approve
-        attendance_account = self.employee_id.employee_overtime.filter(
-            month=self.attendance_date.strftime("%B").lower(),
-            year=self.attendance_date.year,
-        ).first()
-        total_ot_seconds = attendance_account.overtime_second
-        if approved and prev_attendance_approved is False:
-            self.approved_overtime_second = self.overtime_second
-            total_ot_seconds = total_ot_seconds + self.approved_overtime_second
-        elif not approved:
-            total_ot_seconds = total_ot_seconds - self.approved_overtime_second
-            self.approved_overtime_second = 0
-        attendance_account.overtime = format_time(total_ot_seconds)
-        attendance_account.save()
+            # If clock in/out are not available, ensure we have a default
+            if not self.attendance_worked_hour:
+                self.attendance_worked_hour = "00:00"
+
+    def save(self, *args, **kwargs):
+        """
+        Override save to calculate worked hours and update overtime.
+        """
+        # Calculate worked hour from clock_in and clock_out if not already set or needs recalculation
+        if self.attendance_clock_in and self.attendance_clock_out:
+            self.calculate_worked_hour()
+        
+        # Adjust minimum hour for holidays/company leaves
+        self.adjust_minimum_hour()
+        
+        # Update overtime calculations
+        if self.attendance_worked_hour and self.minimum_hour:
+            self.update_attendance_overtime()
+        
+        # Handle overtime conditions
+        self.handle_overtime_conditions()
+        
+        # Call parent save
         super().save(*args, **kwargs)
+
 
     def serialize(self):
         """
@@ -487,91 +508,122 @@ class Attendance(HorillaModel):
         return employee_ot
 
     def update_ot(self, employee_ot):
+
         """
+
         Update the hour account for the given employee.
-
+    
         Args:
+
             employee_ot (obj): AttendanceOverTime instance
+
         """
+
         if apps.is_installed("leave"):
+
             approved_leave_requests = self.employee_id.leaverequest_set.filter(
+
                 start_date__lte=self.attendance_date,
+
                 end_date__gte=self.attendance_date,
+
                 status="approved",
+
             )
+
         else:
+
             approved_leave_requests = []
-
-        # Create exclude condition using Q objects
+    
         exclude_condition = Q()
+
         if approved_leave_requests:
-            # Combine multiple conditions for the exclude clause
+
             for leave in approved_leave_requests:
+
                 exclude_condition |= Q(
+
                     attendance_date__range=(leave.start_date, leave.end_date)
+
                 )
-
-        # Filter month attendances in a single query
+    
         month_attendances = (
+
             Attendance.objects.filter(
+
                 employee_id=self.employee_id,
+
                 attendance_date__month=self.attendance_date.month,
+
                 attendance_date__year=self.attendance_date.year,
+
                 attendance_validated=True,
+
             )
+
             .exclude(exclude_condition)
+
             .values("minimum_hour", "at_work_second")
+
         )
-
-        # Calculate hour balance and hours pending in a single loop
+    
         hour_balance = 0
+
         minimum_hour_second = 0
+
         for attendance in month_attendances:
+
             required_work_second = strtime_seconds(attendance["minimum_hour"])
-            at_work_second = min(required_work_second, attendance["at_work_second"])
+
+            # ✅ Fix: Handle None safely
+
+            at_work_value = attendance["at_work_second"] or 0
+
+            at_work_second = min(required_work_second, at_work_value)
+
             hour_balance += at_work_second
+
             minimum_hour_second += required_work_second
-
+    
         hours_pending = minimum_hour_second - hour_balance
-        employee_ot.worked_hours = format_time(hour_balance)
-        employee_ot.pending_hours = format_time(hours_pending)
-        employee_ot.save()
 
+        employee_ot.worked_hours = format_time(hour_balance)
+
+        employee_ot.pending_hours = format_time(hours_pending)
+
+        employee_ot.save()
+    
         return employee_ot
 
-    def clean(self, *args, **kwargs):
-        super().clean(*args, **kwargs)
-        now = datetime.now().time()
-        today = datetime.today().date()
+ 
 
-        # Convert to time if it's a string
-        if isinstance(self.attendance_clock_out, str):
-            out_time = datetime.strptime(self.attendance_clock_out, "%H:%M:%S").time()
-        else:
-            out_time = self.attendance_clock_out
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        from django.utils.translation import gettext_lazy as _
 
-        if self.attendance_clock_in_date < self.attendance_date:
-            raise ValidationError(
-                {
-                    "attendance_clock_in_date": "Attendance check-in date cannot be earlier than attendance date"
-                }
-            )
+        
+       # Skip validation if it's a bulk-created instance
+        if getattr(self, "is_bulk_request", False):
+            print("------------------------------------in clean in attendance model")
+            return  # ✅ Skip all validation checks safely
 
-        if (
-            self.attendance_clock_out_date
-            and self.attendance_clock_out_date < self.attendance_clock_in_date
-        ):
-            raise ValidationError(
-                {
-                    "attendance_clock_out_date": "Attendance check-out date cannot be earlier than check-in date"
-                }
-            )
 
-        if self.attendance_clock_out_date and self.attendance_clock_out_date >= today:
-            if out_time > now:
+        if not self.attendance_date:
+            raise ValidationError({"attendance_date": _("Attendance date is missing.")})
+
+        if self.attendance_clock_in_date and self.attendance_date:
+            if self.attendance_clock_in_date < self.attendance_date:
                 raise ValidationError(
-                    {"attendance_clock_out": "Check-out time cannot be in the future"}
+                    {"attendance_clock_in_date": _("Clock-in date cannot be before attendance date.")}
                 )
+
+        if self.attendance_clock_out_date and self.attendance_date:
+            if self.attendance_clock_out_date < self.attendance_date:
+                raise ValidationError(
+                    {"attendance_clock_out_date": _("Clock-out date cannot be before attendance date.")}
+                )
+
+        super().clean()
 
 
 class AttendanceRequestFile(HorillaModel):
@@ -938,7 +990,13 @@ class WorkRecords(models.Model):
         ("FDP", _("Present")),
         ("HDP", _("Half Day Present")),
         ("ABS", _("Absent")),
+        ("LEA", _("Leave")),
         ("HD", _("Holiday/Company Leave")),
+        ("MCO", _("Missed Check Out")),
+        # ("MCI", _("Missed Check In")),
+        ("WOF", _("Weekly Off")),
+        ("LFD", _("Full Day Leave")),
+        ("LHD", _("Half Day Leave")),
         ("CONF", _("Conflict")),
         ("DFT", _("Draft")),
     ]

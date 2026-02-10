@@ -1,0 +1,327 @@
+{% extends 'index.html' %} {% load static i18n %} {% block content %}
+
+<style>
+  .oh-wrapper {
+    width: 90%;
+    margin: 0 auto;
+    font-family: "Inter", sans-serif;
+  }
+
+  .oh-main__titlebar-title a {
+    text-decoration: none;
+    color: #000;
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  .year-select {
+    font-size: 16px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    outline: none;
+    width: 140px;
+    font-weight: 500;
+    transition: all 0.3s;
+  }
+
+  .year-select:focus {
+    border-color: #7A34AB;
+    box-shadow: 0 0 0 3px rgba(122, 52, 171, 0.1);
+  }
+
+  .note {
+    font-size: 14px;
+    color: #c45b00;
+    margin-bottom: 10px;
+    padding: 10px 15px;
+    background-color: #fff3e0;
+    border-left: 4px solid #ff9800;
+    border-radius: 6px;
+  }
+
+  /* Top Controls Section */
+  .top-controls {
+    display: flex;
+    align-items: center;
+    gap: 25px;
+    margin-top: 25px;
+    margin-bottom: 35px;
+    flex-wrap: wrap;
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .download-link,
+  .upload-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: all 0.3s;
+  }
+
+  .download-link:hover,
+  .upload-link:hover {
+    background-color: #e3f2fd;
+    text-decoration: none;
+  }
+
+  .upload-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .upload-wrapper p {
+    font-size: 12px;
+    color: #666;
+    margin: 0;
+    padding-left: 12px;
+  }
+
+  .submit-btn {
+    padding: 10px 24px;
+    background-color: #7A34AB;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    opacity: 0.6;
+    font-weight: 600;
+    font-size: 15px;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .submit-btn.enabled {
+    opacity: 1;
+    box-shadow: 0 4px 12px rgba(122, 52, 171, 0.3);
+  }
+
+  .submit-btn.enabled:hover {
+    background-color: #6a2d99;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(122, 52, 171, 0.4);
+  }
+
+  .submit-btn:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Main Container for Month Cards */
+  .months-main-card {
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    margin-top: 30px;
+    margin-bottom: 40px;
+  }
+
+  .months-header {
+    font-size: 20px;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #f0f0f0;
+  }
+
+  /* Grid months section */
+  .month-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+
+  .month-card {
+    background-color: #fafafa;
+    border-radius: 12px;
+    padding: 20px;
+    border: 2px solid #e8e8e8;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-align: center;
+  }
+
+  .month-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    border-color: #7A34AB;
+  }
+
+  .month-card.active {
+    background: linear-gradient(135deg, #7A34AB 0%, #9b59b6 100%);
+    color: #fff;
+    border-color: #7A34AB;
+    box-shadow: 0 6px 20px rgba(122, 52, 171, 0.3);
+  }
+
+  .month-card h4 {
+    margin: 0 0 10px 0;
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .month-card p {
+    margin: 6px 0;
+    font-size: 13px;
+    opacity: 0.85;
+  }
+
+  .month-status {
+    display: inline-block;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    background-color: #e0e0e0;
+    color: #555;
+    margin-top: 10px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .month-card.active .month-status {
+    background-color: rgba(255, 255, 255, 0.3);
+    color: #fff;
+  }
+
+  /* Header Styling */
+  .oh-main__topbar {
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    padding: 25px 0 !important;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 20px;
+  }
+
+  @media (max-width: 1200px) {
+    .month-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .month-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .top-controls {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .month-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="oh-wrapper oh-main__topbar pb-3">
+  <div class="oh-main__titlebar oh-main__titlebar--left">
+    <h1 class="oh-main__titlebar-title fw-bold">
+      <a href="#" class="text-dark">{% trans "Run Payroll" %}</a>
+    </h1>
+  </div>
+</section>
+
+<div class="oh-wrapper">
+  <!-- Notes -->
+  <p class="note">
+    📌 Please use this section to download and upload external components amount.
+  </p>
+  <p class="note">
+    ⚠️ On upload, salary will be regenerated if already generated and not paid.
+  </p>
+
+  <!-- Top Controls: Year Select, Download, Upload, Submit -->
+  <div class="top-controls">
+    <form method="get" action="{% url 'run-payroll' %}" id="yearForm">
+      <input type="number" name="year" id="yearSelect" class="year-select" placeholder="Select Year" min="2000"
+        max="2100" value="{{ selected_year }}" oninput="debounceSubmit(this)" />
+    </form>
+
+    <a href="{% url 'payslip-import-download' %}?year={{ selected_year }}" class="download-link">
+      <span>📥</span> Download External Components Template
+    </a>
+
+    <div class="upload-wrapper">
+      <form action="{% url 'import_employees' %}" method="post" enctype="multipart/form-data" id="uploadForm">
+        {% csrf_token %}
+        <label class="upload-link">
+          <span>📎</span> Attach External Components
+          <input type="file" name="file" style="display: none" id="fileInput" onchange="enableSubmit(this)" />
+        </label>
+      </form>
+      <p>Max file size: 2MB</p>
+    </div>
+
+    <button class="submit-btn" id="submitBtn" disabled
+      onclick="document.getElementById('uploadForm').submit()">Submit</button>
+  </div>
+
+  <!-- Main Card Container for All Months -->
+  <div class="months-main-card">
+    <div class="months-header">
+      Select Month for Payroll Processing ({{ selected_year }})
+    </div>
+
+    <!-- Month Grid (4x3) -->
+    <div class="month-grid" id="monthGrid">
+      {% for month in months %}
+      <div class="month-card {% if month.status == 'completed' %}active{% endif %}"
+        onclick="window.location.href='{% url 'payslip-info-import' %}?month={{ month.month_num }}&year={{ selected_year }}'">
+        <h4>{{ month.name }}</h4>
+        <p>{{ month.range }}</p>
+        <span class="month-status">{{ month.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+  // Enable submit when file chosen
+  function enableSubmit(input) {
+    const btn = document.getElementById("submitBtn");
+    if (input.files.length > 0) {
+      btn.disabled = false;
+      btn.classList.add("enabled");
+
+      // Update the label text to show filename
+      const fileName = input.files[0].name;
+      const label = input.parentElement;
+      const span = label.querySelector('span');
+      // basic visual feedback
+      span.innerHTML = '📎 ' + fileName.substring(0, 20) + (fileName.length > 20 ? '...' : '');
+    } else {
+      btn.disabled = true;
+      btn.classList.remove("enabled");
+    }
+  }
+
+  // Debounce function for year input
+  let timeout = null;
+  function debounceSubmit(input) {
+    const year = input.value;
+    // Only submit if it looks like a valid year (4 digits)
+    if (year.length === 4 && year >= 2000 && year <= 2100) {
+      clearTimeout(timeout);
+      timeout = setTimeout(function () {
+        document.getElementById('yearForm').submit();
+      }, 800); // 800ms delay to let user finish typing
+    }
+  }
+</script>
+
+{% endblock content %}

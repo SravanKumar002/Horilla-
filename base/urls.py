@@ -31,11 +31,33 @@ from base.models import (
     Tags,
     WorkType,
     WorkTypeRequest,
+    
 )
 from horilla_audit.models import AuditTag
+    
+from django.urls import include
+
 
 urlpatterns = [
     path("", views.home, name="home-page"),
+    path('geofencing', include('geofencing.urls')),
+# ---------------- calender--------------------//
+    path(
+    "calendar-work-records-change-month/",
+    views.calendar_work_records_change_month,
+    name="calendar_work_records_change_month",  # ✅ URL name must match exactly
+    ),
+
+
+# leave calendar
+    path("leave-records/", views.leave_records, name="leave-records"),
+    path(
+        "leave-records-change-month/",
+        views.leave_records_change_month,
+        name="leave-records-change-month",  
+    ),
+
+
     path("initialize-database", views.initialize_database, name="initialize-database"),
     path("load-demo-database", views.load_demo_database, name="load-demo-database"),
     path(
@@ -196,6 +218,8 @@ urlpatterns = [
     ),
     path("settings/company-create/", views.company_create, name="company-create"),
     path("settings/company-view/", views.company_view, name="company-view"),
+    # path("settings/company-show/", views.company_show, name="company-show"),
+
     path(
         "settings/company-update/<int:id>/",
         views.company_update,
@@ -713,6 +737,11 @@ urlpatterns = [
         name="shift-request-bulk-delete",
     ),
     path("notifications", views.notifications, name="notifications"),
+    path(
+        "dashboard-notifications",
+        views.dashboard_notifications,
+        name="dashboard-notifications",
+    ),
     path("clear-notifications", views.clear_notification, name="clear-notifications"),
     path(
         "delete-all-notifications",
@@ -1070,6 +1099,12 @@ urlpatterns = [
         "company-leave-filter", views.company_leave_filter, name="company-leave-filter"
     ),
     path("view-penalties", views.view_penalties, name="view-penalties"),
+    # static page
+    
+    path("support", views.support, name="support"),
+    path("marketing", views.marketing, name="marketing"),
+    path("privacypolicy", views.privacypolicy, name="privacypolicy"),
+
 ]
 
 urlpatterns.append(

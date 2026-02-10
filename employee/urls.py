@@ -182,6 +182,12 @@ urlpatterns = [
         name="total-employees-count",
     ),
     path("joining-today-count", views.joining_today_count, name="joining-today-count"),
+    # admin dashboard
+    path("joiners-this-month", views.joiners_this_month, name="joiners-this-month"),
+    path("left-this-month", views.left_this_month, name="left-this-month"),
+    path("joiners-year-till-date", views.joiners_ytd, name="joiners-year-till-date"),
+    path("left-year-till-date", views.left_ytd, name="left-year-till-date"),    
+
     path("joining-week-count", views.joining_week_count, name="joining-week-count"),
     path("dashboard-employee", views.dashboard_employee, name="dashboard-employee"),
     path(

@@ -1,6 +1,108 @@
 {% load i18n static %}
 {% if leave_requests %}
-    <div class="oh-sticky-table h-100">
+<style>
+.leave-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #ffffff;
+    border-bottom: 1px solid #e6d8ff;
+    padding: 12px 18px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    box-shadow: inset;
+}
+ 
+.leave-card:hover {
+    background: #faf7ff;
+}
+ 
+.leave-info {
+    display: flex;
+    align-items: center;
+}
+ 
+.leave-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-right: 12px;
+    background: #d9c7ff;
+}
+ 
+.leave-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+ 
+.leave-text-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+}
+ 
+.leave-text-small {
+    font-size: 13px;
+    color: #6b6b6b;
+}
+.action-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+ 
+ .notif-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid #e5e7eb;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex: 1;
+    white-space: nowrap;
+  }
+ 
+  .notif-btn ion-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+ 
+
+.leave-actions a {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: white;
+    text-decoration: none;
+    margin-left: 6px;
+}
+ 
+.leave-approve {
+    background: #2ecc71;
+}
+ 
+.leave-approve:hover {
+    background: #27ae60;
+}
+ 
+.leave-reject {
+    background: #e74c3c;
+    color: white !important;
+}
+ 
+.leave-reject:hover {
+    background: #c0392b;
+}
+</style>
+    <!-- <div class="oh-sticky-table h-100">
         <div class="oh-sticky-table__table ">
             <div class="oh-sticky-table__thead">
                 <div class="oh-sticky-table__tr">
@@ -46,7 +148,52 @@
                 {% endfor %}
             </div>
         </div>
+    </div> -->
+    <div>
+    {% for leave_request in leave_requests %}
+ 
+    <div class="leave-card"
+        data-toggle="oh-modal-toggle"
+        data-target="#objectDetailsModalW25"
+        hx-get="{% url 'one-request-view' leave_request.id %}?instances_ids={{requests_ids}}&dashboard=true"
+        hx-target="#objectDetailsModalW25Target">
+ 
+        <!-- LEFT: Avatar + Name + Dates -->
+        <div class="leave-info">
+            <div class="leave-avatar">
+                <img src="{{ leave_request.employee_id.get_avatar }}" alt="">
+            </div>
+ 
+            <div>
+                <div class="leave-text-name">{{ leave_request.employee_id }}</div>
+                <div class="leave-text-small">
+                    {{ leave_request.employee_id.get_department  }} •
+                    {{ leave_request.start_date }} - {{ leave_request.end_date }}
+                </div>
+            </div>
+        </div>
+ 
+        <!-- RIGHT: Approve & Reject -->
+        <div class="action-buttons" onclick="event.stopPropagation()">
+            <a href="{% url 'request-approve' leave_request.id %}"
+               class="notif-btn  leave-approve"
+               onclick="return confirm('Do you want to Approve this leave request?')"style="color:white !important;">
+               <ion-icon name="checkmark-circle-outline"></ion-icon>Approve
+            </a>
+ 
+            <a data-toggle=" notif-btn  oh-modal-toggle"
+               data-target="#bigModal"
+               hx-get="{% url 'request-cancel' leave_request.id %}"
+               hx-target="#bigModalTarget"
+               class="notif-btn leave-reject" >
+              <ion-icon  name="close-circle-outline"></ion-icon>Reject
+            </a>
+        </div>
+ 
     </div>
+ 
+    {% endfor %}
+</div>
 {% else %}
     <div class="oh-empty h-100">
         <img src="{% static 'images/ui/search.svg' %}" class="oh-404__image" alt="Page not found. 404." />

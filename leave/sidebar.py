@@ -37,33 +37,50 @@ SUBMENUS = [
         "redirect": reverse("assign-view"),
         "accessibility": "leave.sidebar.assign_accessibility",
     },
-    {
-        "menu": trans("Leave Allocation Request"),
-        "redirect": reverse("leave-allocation-request-view"),
-    },
+    # {
+    #     "menu": trans("Leave Allocation Request"),
+    #     "redirect": reverse("leave-allocation-request-view"),
+    # },
     {
         "menu": trans("Holidays"),
         "redirect": reverse("holiday-view"),
         "accessibility": "leave.sidebar.holiday_accessibility",
     },
-    {
-        "menu": trans("Company Leaves"),
-        "redirect": reverse("company-leave-view"),
-        "accessibility": "leave.sidebar.company_leave_accessibility",
-    },
-    {
-        "menu": trans("Restrict Leaves"),
-        "redirect": reverse("restrict-view"),
-        "accessibility": "leave.sidebar.restrict_leave_accessibility",
-    },
+    # {
+    #     "menu": trans("Company Leaves"),
+    #     "redirect": reverse("company-leave-view"),
+    #     "accessibility": "leave.sidebar.company_leave_accessibility",
+    # },
+    # {
+    #     "menu": trans("Restrict Leaves"),
+    #     "redirect": reverse("restrict-view"),
+    #     "accessibility": "leave.sidebar.restrict_leave_accessibility",
+    # },
 ]
 
 
 def dashboard_accessibility(request, submenu, user_perms, *args, **kwargs):
-    have_perm = request.user.has_perm("leave.view_leaverequest")
-    if not have_perm:
-        submenu["redirect"] = reverse("leave-employee-dashboard") + "?dashboard=true"
-    return True
+
+    # SUPERUSER allowed
+    if request.user.is_superuser:
+        return True
+
+    # REPORTING MANAGER allowed
+    if is_reportingmanager(request.user):
+        return True
+
+    # HR / Leave permission allowed
+    if request.user.has_perm("leave.view_leaverequest"):
+        return True
+
+    # Normal User → DO NOT SHOW DASHBOARD
+    return False
+
+# def dashboard_accessibility(request, submenu, user_perms, *args, **kwargs):
+#     have_perm = request.user.has_perm("leave.view_leaverequest")
+#     if not have_perm:
+#         submenu["redirect"] = reverse("leave-employee-dashboard") + "?dashboard=true"
+#     return True
 
 
 def leave_request_accessibility(request, submenu, user_perms, *args, **kwargs):
@@ -103,14 +120,14 @@ def restrict_leave_accessibility(request, submenu, user_perms, *args, **kwargs):
     )
 
 
-if apps.is_installed("attendance"):
-    SUBMENUS.append(
-        {
-            "menu": trans("Compensatory Leave Requests"),
-            "redirect": reverse("view-compensatory-leave"),
-            "accessibility": "leave.sidebar.componstory_accessibility",
-        }
-    )
+# if apps.is_installed("attendance"):
+#     SUBMENUS.append(
+#         {
+#             "menu": trans("Compensatory Leave Requests"),
+#             "redirect": reverse("view-compensatory-leave"),
+#             "accessibility": "leave.sidebar.componstory_accessibility",
+#         }
+#     )
 
-    def componstory_accessibility(request, submenu, user_perms, *args, **kwargs):
-        return is_compensatory(request.user)
+#     def componstory_accessibility(request, submenu, user_perms, *args, **kwargs):
+#         return is_compensatory(request.user)

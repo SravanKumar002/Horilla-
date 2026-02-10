@@ -1,0 +1,109 @@
+{% load i18n %}
+
+<!-- {% if level == 0 %}
+  {% for company in all_companies %}
+    {% if company.0 == "all" %}
+    <div class="company-node-wrapper" style="position: relative;">
+      <div class="company-card company-card-all">
+        <div class="card-info">
+          <img src="{{ company.2 }}" alt="Company Logo" />
+          <div>
+            <p class="card-company-all">{{ company.1 }}</p>
+          </div>
+        </div>
+
+        <div class="card-time">
+          <span>{% trans "Scope" %}</span>
+          <span>{% trans "Entire Organization" %}</span>
+        </div>
+
+        <div class="card-buttons">
+          <button class="admin"
+            hx-get="{% url 'update-selected-company' %}?company_id={{ company.0 }}&next={{ request.path }}"
+            hx-target="#objectDetailsModalTarget">
+            {% trans "View All" %}
+          </button>
+        </div>
+
+        <div class="all-company-description card-footer ">
+          <strong>{% trans "Description:" %}</strong>
+          <span>{% trans "Includes every company and employee." %}</span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+{% endif %} -->
+
+{% for node in nodes %}
+<div class="company-node-wrapper" style="position: relative;">
+  <div class="company-card company-card-level-{{ level }}"
+    style="margin-left: {% widthratio level 1 20 %}px; cursor: pointer;"
+    onclick="toggleChildren('children-{{ node.company.id }}')">
+
+    <div class="card-info">
+      <img src="{{ node.company.icon.url }}" alt="Company Logo" />
+
+      <div>
+        <h3 class="card-company">{{ node.company.company }}</h3>
+
+        {% if not node.company.parent_company %}
+        <!-- <span>{% trans "Super Company" %}</span> -->
+        {% else %}
+        <!-- <span class="badge free">{% trans "Sub Company" %}</span> -->
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card-time">
+      <span>{% trans "Created At" %}</span>
+      <span>{{ node.company.created_at|date:"d M Y" }}</span>
+    </div>
+
+    <div class="card-buttons">
+      <a class="admin" style="color:white !important"
+        href="{% url 'update-selected-company' %}?company_id={{ node.company.id }}&next={{ request.path }}">
+        {% trans "Admin Hub" %}
+      </a>
+    </div>
+
+    <div class="card-footer" title="{{ node.company.address|default:_('Not Provided') }}">
+      <strong>{% trans "Address:" %}</strong>
+      <span>{{ node.company.address|default:_("Not Provided") }}</span>
+    </div>
+    <div class="card-stats">
+      <!-- Employee Count -->
+      <div title="{% trans 'No. of Employees'%}">
+
+        👤 {{ node.company.employee_count|default:"0" }}
+      </div>
+
+      {# Sub-company Count: only show when user is allowed to view subcompanies #}
+      {% if can_view_subcompanies and not node.company.parent_company %}
+      <div title="{% trans 'No. of SubCompanies'%}">
+        📘 {{ node.company.sub_company_count|default:"0" }}
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  {# Child subcompany cards: render only when user can view subcompanies #}
+  {% if node.children and can_view_subcompanies %}
+  <div id="children-{{ node.company.id }}" style="display:none;" class="children-container">
+    <!-- <div class="connector-line" style="position: absolute; left: {% widthratio level 1 20 %}px; top: 0; width: 2px; height: 30px; background: #7c3aed;"></div> -->
+
+    <div
+      style="position: relative; padding-left: 40px; border-left: 2px solid #7c3aed; margin-left: {% widthratio level 1 20 %}px; margin-top: 15px;border-radius:0% 0% 0% 0%;">
+
+      <div style="position: relative;">
+        <!-- <div style="position: absolute; left: -40px; top: 50%; width: 40px; height: 2px; background: #7c3aed;"></div> -->
+        {% include "company/partials/company_card_node.html" with nodes=node.children level=level|add:"1" %}
+      </div>
+
+    </div>
+  </div>
+
+  {% endif %}
+</div>
+{% endfor %}

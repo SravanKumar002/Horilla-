@@ -6,6 +6,7 @@ This module is used to register models for employee app
 """
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from django.apps import apps
 from django.conf import settings
@@ -661,9 +662,44 @@ class EmployeeWorkInformation(models.Model):
     contract_end_date = models.DateField(
         blank=True, null=True, verbose_name=_("Contract End Date")
     )
-    basic_salary = models.IntegerField(
-        null=True, blank=True, default=0, verbose_name=_("Basic Salary")
+    
+    # --- FIXED: Changed to DecimalField for currency/salary ---
+    basic_salary = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0.00, 
+        null=True, 
+        blank=True, 
+        verbose_name=_("Basic Salary")
     )
+    
+    # --- ADDED: Missing allowance fields to fix the AttributeError ---
+    housing_allowance = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0.00, 
+        null=True, 
+        blank=True, 
+        verbose_name=_("Housing Allowance")
+    )
+    transport_allowance = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0.00, 
+        null=True, 
+        blank=True, 
+        verbose_name=_("Transport Allowance")
+    )
+    other_allowance = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0.00, 
+        null=True, 
+        blank=True, 
+        verbose_name=_("Other Allowance")
+    )
+    # -------------------------------------------------------------
+    
     salary_hour = models.IntegerField(
         null=True, blank=True, default=0, verbose_name=_("Salary Per Hour")
     )
@@ -693,6 +729,20 @@ class EmployeeWorkInformation(models.Model):
         This method is used to return the tracked history of the instance
         """
         return get_diff(self)
+
+    @property
+    def total_salary(self):
+        """
+        Aggregate all salary components so templates can display a single amount.
+        """
+        components = [
+            self.basic_salary or Decimal("0.00"),
+            self.housing_allowance or Decimal("0.00"),
+            self.transport_allowance or Decimal("0.00"),
+            self.other_allowance or Decimal("0.00"),
+        ]
+        has_value = any(component for component in components)
+        return sum(components, Decimal("0.00")) if has_value else None
 
     def experience_calculator(self):
         """

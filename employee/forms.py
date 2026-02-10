@@ -1,26 +1,3 @@
-"""
-forms.py
-
-This module contains the form classes used in the application.
-
-Each form represents a specific functionality or data input in the
-application. They are responsible for validating
-and processing user input data.
-
-Classes:
-- YourForm: Represents a form for handling specific data input.
-
-Usage:
-from django import forms
-
-class YourForm(forms.Form):
-    field_name = forms.CharField()
-
-    def clean_field_name(self):
-        # Custom validation logic goes here
-        pass
-"""
-
 import logging
 import re
 from datetime import date, datetime
@@ -343,6 +320,40 @@ class EmployeeWorkInformationForm(ModelForm):
     """
     Form for EmployeeWorkInformation model
     """
+    # --- Existing Allowance Fields ---
+    housing_allowance = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        label=trans("Housing Allowance"),
+        initial=0.00
+    )
+    transport_allowance = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        label=trans("Transport Allowance"),
+        initial=0.00
+    )
+    other_allowance = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        label=trans("Other Allowance"),
+        initial=0.00
+    )
+    # ----------------------------------------------------
+    # --- New Calculated Field: Total Salary ---
+    total_salary = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        label=trans("Total Salary"),
+        initial=0.00,
+        # Make it read-only for display purposes
+        widget=forms.TextInput(attrs={"readonly": "readonly", "class": "oh-input w-100 form-control"}), 
+    )
+    # ------------------------------------------
 
     class Meta:
         """
@@ -363,7 +374,17 @@ class EmployeeWorkInformationForm(ModelForm):
             }
         )
 
+        # --- Calculate and set initial value for total_salary ---
+        if self.instance and self.instance.pk:
+            basic = self.instance.basic_salary or 0
+            house = self.instance.housing_allowance or 0
+            transport = self.instance.transport_allowance or 0
+            other = self.instance.other_allowance or 0
+            self.fields["total_salary"].initial = (basic + house + transport + other)
+        # --------------------------------------------------------
+
         for field in self.fields:
+            # This loop will now also set placeholders for the new fields
             self.fields[field].widget.attrs["placeholder"] = self.fields[field].label
             if disable:
                 self.fields[field].disabled = True
@@ -412,6 +433,7 @@ class EmployeeWorkInformationForm(ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        # The 'total_salary' field is for display only, so no clean logic is strictly needed here.
         if "employee_id" in self.errors:
             del self.errors["employee_id"]
         return cleaned_data
@@ -425,6 +447,36 @@ class EmployeeWorkInformationUpdateForm(ModelForm):
     """
     Form for EmployeeWorkInformation model
     """
+    # --- Existing Allowance Fields ---
+    housing_allowance = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        label=trans("Housing Allowance")
+    )
+    transport_allowance = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        label=trans("Transport Allowance")
+    )
+    other_allowance = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        label=trans("Other Allowance")
+    )
+    # ----------------------------------------------------
+    # --- New Calculated Field: Total Salary ---
+    total_salary = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        label=trans("Total Salary"),
+        # Make it read-only for display purposes
+        widget=forms.TextInput(attrs={"readonly": "readonly", "class": "oh-input w-100 form-control"}),
+    )
+    # ------------------------------------------
 
     class Meta:
         """
@@ -435,6 +487,17 @@ class EmployeeWorkInformationUpdateForm(ModelForm):
         fields = "__all__"
         exclude = ("employee_id",)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # --- Calculate and set initial value for total_salary ---
+        if self.instance and self.instance.pk:
+            basic = self.instance.basic_salary or 0
+            house = self.instance.housing_allowance or 0
+            transport = self.instance.transport_allowance or 0
+            other = self.instance.other_allowance or 0
+            self.fields["total_salary"].initial = (basic + house + transport + other)
+        # --------------------------------------------------------
+        
     def as_p(self, *args, **kwargs):
         context = {"form": self}
         return render_to_string("employee/create_form/personal_info_as_p.html", context)
@@ -503,6 +566,7 @@ class EmployeeBankDetailsUpdateForm(ModelForm):
         return render_to_string("employee/update_form/bank_info_as_p.html", context)
 
 
+# --- Updated excel_columns with the new calculated field ---
 excel_columns = [
     ("badge_id", trans("Badge ID")),
     ("employee_first_name", trans("First Name")),
@@ -535,7 +599,12 @@ excel_columns = [
     ("employee_work_info__location", trans("Location")),
     ("employee_work_info__date_joining", trans("Date Joining")),
     ("employee_work_info__basic_salary", trans("Basic Salary")),
-    ("employee_work_info__salary_hour", trans("Salary Hour")),
+    ("employee_work_info__housing_allowance", trans("Housing Allowance")),
+    ("employee_work_info__transport_allowance", trans("Transport Allowance")),
+    ("employee_work_info__other_allowance", trans("Other Allowance")),
+    # Special key for calculated field in Excel Export
+    ("employee_work_info__total_salary_calculated", trans("Total Salary")), 
+    ("employee_work_info__salary_hour", trans("Salary Per Hour")),
     ("employee_work_info__contract_end_date", trans("Contract End Date")),
     ("employee_work_info__company_id", trans("Company")),
     ("employee_bank_details__bank_name", trans("Bank Name")),
@@ -556,6 +625,7 @@ fields_to_remove = [
     "phone",
     "employee_bank_details__account_number",
 ]
+# -----------------------------------------------------------------
 
 
 class EmployeeExportExcelForm(forms.Form):
@@ -579,6 +649,10 @@ class EmployeeExportExcelForm(forms.Form):
             "employee_work_info__location",
             "employee_work_info__date_joining",
             "employee_work_info__basic_salary",
+            "employee_work_info__housing_allowance", 
+            "employee_work_info__transport_allowance", 
+            "employee_work_info__other_allowance", 
+            "employee_work_info__total_salary_calculated", # <--- ADDED to initial list
             "employee_work_info__salary_hour",
             "employee_work_info__contract_end_date",
             "employee_work_info__company_id",

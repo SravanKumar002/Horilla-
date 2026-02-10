@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy – Greater Change HRMS Mobile App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <header class="hero">
+        <h1>Privacy Policy for Greater Change HRMS Mobile Application</h1>
+        <p>Last Updated: 10th December 2025</p>
+    </header>
+
+    <section class="section">
+        <h2>About the Application</h2>
+        <p>
+            This Privacy Policy explains how the Greater Change HRMS Mobile Application (“App”) manages and protects user information.
+            The application is owned by <strong>Greater Change</strong> and developed and maintained by 
+            <strong>Prabha Technologies, Dubai, UAE.</strong>
+            By downloading or using this App, you agree to the practices described in this Privacy Policy.
+        </p>
+
+        <p>The HRMS App includes:</p>
+        <ul>
+            <li>Employee Self-Service (ESS)</li>
+            <li>Attendance: Clock-in & Clock-out</li>
+            <li>Leave requests</li>
+            <li>Employee profile & documents</li>
+            <li>Payroll information (optional)</li>
+            <li>Notification & messaging features</li>
+        </ul>
+
+        <p>The App is intended for employees of companies using the Greater Change HRMS platform.</p>
+    </section>
+
+    <section class="section">
+        <h2>2. Information We Collect</h2>
+
+        <h3>2.1 Personal Information</h3>
+        <p>We may collect:</p>
+        <ul>
+            <li>Employee name</li>
+            <li>Email address</li>
+            <li>Phone number</li>
+            <li>Employee ID</li>
+            <li>Designation & department</li>
+            <li>Profile photo (optional)</li>
+            <li>Company details</li>
+            <li>Login credentials (securely encrypted)</li>
+        </ul>
+
+        <h3>2.2 Attendance & Geo-Location Data</h3>
+        <p>To support Clock-In / Clock-Out, we may collect:</p>
+        <ul>
+            <li>Device location (GPS)</li>
+            <li>IP address</li>
+            <li>Time of clock-in and clock-out</li>
+            <li>Geo-coordinates for attendance verification</li>
+        </ul>
+        <p>✔ Location is collected only during attendance actions and not in the background.</p>
+
+        <h3>2.3 Device Information</h3>
+        <ul>
+            <li>Device type</li>
+            <li>Operating system</li>
+            <li>App version</li>
+            <li>Crash logs & performance data</li>
+        </ul>
+
+        <h3>2.4 Usage Data</h3>
+        <ul>
+            <li>Pages viewed</li>
+            <li>Buttons clicked</li>
+            <li>Session duration</li>
+            <li>Feature usage analytics</li>
+        </ul>
+    </section>
+
+    <section class="section">
+        <h2>3. How We Use Your Information</h2>
+        <p>We use collected information for:</p>
+        <ul>
+            <li>Employee authentication & account access</li>
+            <li>Marking attendance & verifying work location</li>
+            <li>Providing ESS functions</li>
+            <li>Processing leave requests</li>
+            <li>HR & payroll calculations</li>
+            <li>App improvement & performance monitoring</li>
+            <li>Sending HR-related notifications</li>
+        </ul>
+
+        <p>We do <strong>not</strong> use your data for:</p>
+        <ul>
+            <li>Advertising</li>
+            <li>Selling to third parties</li>
+            <li>Marketing without permission</li>
+        </ul>
+    </section>
+
+    <section class="section">
+        <h2>4. Location Permission (Required by Apple & Google)</h2>
+        <p>The App requires location access ONLY during Clock-In/Clock-Out to:</p>
+        <ul>
+            <li>Verify employee attendance</li>
+            <li>Prevent false or remote check-ins</li>
+            <li>Maintain accurate HR records</li>
+        </ul>
+        <p>✔ The App does NOT track location continuously.</p>
+        <p>✔ Location is collected only when you manually tap Clock-In or Clock-Out.</p>
+    </section>
+
+    <section class="section">
+        <h2>5. Data Sharing</h2>
+        <p>We may share information only with:</p>
+        <ul>
+            <li>Your employer using the HRMS system</li>
+            <li>Prabha Technologies (developer) for technical support</li>
+            <li>Secure cloud hosting providers</li>
+        </ul>
+        <p>We NEVER sell or trade personal information.</p>
+    </section>
+
+    <section class="section">
+        <h2>6. Data Storage & Security</h2>
+        <p>We use industry-standard security practices:</p>
+        <ul>
+            <li>Encrypted databases</li>
+            <li>SSL/TLS communication</li>
+            <li>Role-based authorization</li>
+            <li>Firewalls & multi-layer protection</li>
+            <li>Regular vulnerability checks</li>
+        </ul>
+        <p>Prabha Technologies manages backend infrastructure.<br>
+        Greater Change controls access to employee records.</p>
+    </section>
+
+    <section class="section">
+        <h2>7. Data Retention</h2>
+        <p>Your data is retained until:</p>
+        <ul>
+            <li>Your employment remains active</li>
+            <li>Your employer maintains an account with Greater Change</li>
+        </ul>
+        <p>
+            On deletion request, personal data is securely removed while attendance logs may remain archived per labor laws.
+            You may request deletion through your HR department.
+        </p>
+    </section>
+
+    <section class="section">
+        <h2>8. Your Rights</h2>
+        <p>You may request:</p>
+        <ul>
+            <li>Access to your data</li>
+            <li>Correction of inaccurate details</li>
+            <li>Deletion of optional data</li>
+            <li>Restriction of certain processing</li>
+            <li>Withdrawal of optional permissions</li>
+        </ul>
+        <p>Contact your HR department or email the support address below.</p>
+    </section>
+
+    <section class="section">
+        <h2>9. Children’s Privacy</h2>
+        <p>The HRMS App is not intended for children under 16. No data is knowingly collected from minors.</p>
+    </section>
+
+    <section class="section">
+        <h2>10. Third-Party Services</h2>
+        <p>The App may use:</p>
+        <ul>
+            <li>Push notification services</li>
+            <li>Crash analytics tools</li>
+            <li>Cloud hosting platforms</li>
+        </ul>
+        <p>All third parties follow strict privacy and data-protection standards.</p>
+    </section>
+
+    <section class="section">
+        <h2>11. International Data Transfer</h2>
+        <p>Data may be hosted in:</p>
+        <ul>
+            <li>UAE</li>
+            <li>India</li>
+            <li>Europe</li>
+            <li>Other secure cloud regions</li>
+        </ul>
+        <p>All transfers comply with global data-protection laws.</p>
+    </section>
+
+    <section class="section">
+        <h2>12. Changes to This Privacy Policy</h2>
+        <p>We may update this Privacy Policy as needed. Changes will appear with a new “Last Updated” date.</p>
+    </section>
+
+    <section class="section">
+        <h2>13. Contact Information</h2>
+
+        <div class="info-box">
+            <p><strong>Greater Change (App Owner)</strong><br>
+                📧 Email: info@greaterchange.com<br>
+                🌐 Website: thegreaterchange.com
+            </p>
+
+            <p><strong>Prabha Technologies (Developer)</strong><br>
+                📧 Email: reach@prabhatech.com<br>
+                📞 +971 54 325 5456<br>
+                🌐 www.prabhatech.com
+            </p>
+        </div>
+    </section>
+
+    <footer>
+        <p>© 2025 Greater Change. All rights reserved.</p>
+        <p>Developed by Prabha Technologies.</p>
+    </footer>
+
+</body>
+</html>
+<style>
+body {
+    margin: 0;
+    padding: 0;
+    background: #f4f6fa;
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #222;
+}
+
+.hero {
+    background: linear-gradient(135deg, #0057b8, #003f88);
+    color: white;
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.hero h1 {
+    margin: 0 0 10px;
+    font-size: 28px;
+}
+
+.section {
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 20px;
+}
+
+.section h2 {
+    color: #003f88;
+    font-size: 22px;
+    margin-bottom: 10px;
+}
+
+.section h3 {
+    color: #0057b8;
+    margin-top: 15px;
+}
+
+.section p,
+.section ul {
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.info-box {
+    background: #ffffff;
+    padding: 15px;
+    border-left: 5px solid #0057b8;
+    margin: 15px 0;
+    border-radius: 6px;
+}
+
+footer {
+    background: #002b5b;
+    color: white;
+    text-align: center;
+    padding: 20px;
+    margin-top: 40px;
+}
+
+</style>

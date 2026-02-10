@@ -1,0 +1,198 @@
+ {% block content %} {% load i18n %}
+{% load attendancefilters %}
+{% include "filter_tags.html" %}
+<style>
+    /* table {
+        width: 100%;
+    }
+    th,
+    td {
+        border: 1px solid hsl(213,22%,84%);
+        padding: 5px;
+    }
+
+    th {
+        background-color: lightgray;
+    }
+    .header {
+        background:lightgray;
+    }
+    .holiday {
+        background:#e3e3e8;
+        border:none
+    }
+    .oh-card {
+        background-color: #ededed;
+        border-radius: 5px;
+        padding: 10px;
+        margin-bottom: 20px;
+    }
+
+    .oh-card h4 {
+        color: #333;
+        margin: 0;
+        font-weight: bold;
+    }
+    .days {
+        width:30px;
+    }
+    #workRecordTable a {
+        color:inherit;
+    }
+    .oh-sticky-table__th {
+        padding:5px !important;
+        text-align: center;
+    } */
+     .leave-calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding:20px;
+  }
+  .leave-calendar-month {
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+  }
+  .leave-calendar-nav button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--bg-accent);
+    padding: 0.25rem 0.5rem;
+    font-size: 1.1rem;
+  }
+  .leave-calendar-nav {
+    display: flex;
+    justify-content:end;
+    gap: 12px;
+  }
+  .leave-nav-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #e5e7eb;
+    background: white;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 18px;
+    color: #6b7280;
+  }
+  .leave-nav-btn:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+  }
+</style>
+
+
+    <div class="leave-table-container">
+        <div class=" " style="height:70px;">
+           <div class="leave-calendar-header">
+                <div class="leave-calendar-month" id="leaveRecordMonth" data-year="{{ current_date|date:'Y' }}"
+                    data-month="{{ current_date|date:'m' }}">
+                    {{ current_date|date:"F Y" }}
+                </div>
+                <div class="leave-calendar-nav" style="text-align:right!important">
+                    <button class="" id="leaveRecordPrevMonth">‹</button>
+                    <button class="leave-nav-btn" id="leaveRecordNextMonth">›</button>
+                </div>
+            </div>
+</div>
+        <div id="workRecordTable" hx-get="{% url 'leave-records-change-month' %}?month={{pd}}&{{ current_date|date:"Y-m" }}" hx-trigger="load" class="leave-data">
+            <div class="animated-background"></div>
+        </div>
+    </div>
+
+
+<script>
+    (function () {
+        function initLeaveRecordCalendar() {
+            const prevBtn = document.getElementById("leaveRecordPrevMonth");
+            const nextBtn = document.getElementById("leaveRecordNextMonth");
+            const monthLabel = document.getElementById("leaveRecordMonth");
+            const workRecordTable = document.getElementById("workRecordTable");
+            const baseUrl = "{% url 'leave-records-change-month' %}";
+
+            if (!prevBtn || !nextBtn || !monthLabel) return;
+
+            // Ensure dataset has values if empty (fallback to current date)
+            if (!monthLabel.dataset.year || !monthLabel.dataset.month) {
+                const now = new Date();
+                monthLabel.dataset.year = now.getFullYear();
+                monthLabel.dataset.month = now.getMonth() + 1;
+            }
+
+            function updateLeaveCalendar(newYear, newMonth) {
+                // Update Label
+                const date = new Date(newYear, newMonth - 1, 1);
+                const label = date.toLocaleString("default", { month: "long", year: "numeric" });
+                monthLabel.textContent = label;
+                monthLabel.dataset.year = newYear;
+                monthLabel.dataset.month = newMonth;
+
+                // Trigger HTMX
+                const monthStr = `${newYear}-${String(newMonth).padStart(2, "0")}`;
+                const newUrl = `${baseUrl}?month=${monthStr}`;
+
+                // We use htmx.ajax to trigger the update on the table div
+                if (typeof htmx !== 'undefined') {
+                    htmx.ajax('GET', newUrl, { target: '#workRecordTable', swap: 'innerHTML' });
+                } else {
+                    console.error("HTMX is not defined");
+                }
+            }
+
+            // Remove existing listeners to avoid duplicates if re-initialized
+            const newPrevBtn = prevBtn.cloneNode(true);
+            const newNextBtn = nextBtn.cloneNode(true);
+            prevBtn.parentNode.replaceChild(newPrevBtn, prevBtn);
+            nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
+
+            newPrevBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                let year = parseInt(monthLabel.dataset.year);
+                let month = parseInt(monthLabel.dataset.month);
+
+                month -= 1;
+                if (month < 1) {
+                    month = 12;
+                    year -= 1;
+                }
+                updateLeaveCalendar(year, month);
+            });
+
+            newNextBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                let year = parseInt(monthLabel.dataset.year);
+                let month = parseInt(monthLabel.dataset.month);
+
+                month += 1;
+                if (month > 12) {
+                    month = 1;
+                    year += 1;
+                }
+                updateLeaveCalendar(year, month);
+            });
+        }
+
+        // Initialize on load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initLeaveRecordCalendar);
+        } else {
+            initLeaveRecordCalendar();
+        }
+
+        // Re-initialize after HTMX swaps if necessary (though this script is inside the content, it should run on swap)
+        document.body.addEventListener('htmx:afterSwap', function (evt) {
+            // Check if our component was swapped in
+            if (evt.target.querySelector('#leaveRecordMonth')) {
+                initLeaveRecordCalendar();
+            }
+        });
+    })();
+</script>
+{% endblock content %}

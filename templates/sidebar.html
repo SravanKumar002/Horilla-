@@ -28,7 +28,7 @@ function initializeSummernote(candId,searchWords,) {
             mentions: mentions,
             match: /\B\{(\w*)$/,
             search: function(keyword, callback) {
-                var pattern = new RegExp(keyword, "i"); // Case-insensitive search
+                var pattern = new RegExp(keyword, "i"); 
                 callback($.grep(this.mentions, function(item) {
                     return pattern.test(item);
                 }));
@@ -60,64 +60,90 @@ function initializeSummernote(candId,searchWords,) {
     font-size: 15px;
     padding-right: 4px;
   }
+  
+  .highlight-selected{
+    background-color: rgba(255, 68, 0, 0.134);
+  }
+  .highlight-selected:hover{
+    background-color: rgba(255, 68, 0, 0.1);
+  }
+  .fade-me-out.htmx-swapping {
+    opacity: 0;
+    transition: opacity 1s ease-out;
+  }
+
+
+
+.oh-sidebar {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    
+    /* Prevent scroll event from bubbling to body */
+    overscroll-behavior: contain;
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  .oh-sidebar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  /* Fix: Ensure submenu appears above viewport when parent is at bottom */
+  .oh-sidebar__submenu {
+    position: fixed !important;
+    z-index: 99999;
+    max-height: 80vh; /* Prevent submenu from being too tall */
+    overflow-y: auto; /* Allow submenu to scroll if needed */
+    background: white;
+    min-width: 200px; /* Give it a specific width if needed */
+    padding-left: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    display: none;
+    border-radius: 4px; /* Optional polish */
+  }
+
+
+
+  
+  .oh-sidebar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  /* 2. DETACH SUBMENU FROM SIDEBAR FLOW */
+  
+ 
+.oh-sidebar__menu-item {
+  position: relative !important; 
+}
+ 
+/* Submenu items style */
+.oh-sidebar__submenu-items li:hover {
+  background: rgba(255,255,255,0.05);
+}
+/* #sidebar{
+  overflow: hidden !important;
+  
+}
+.oh-sidebar {
+    overflow: visible !important;
+} */
+ 
+/* .oh-wrapper-main {
+    overflow: visible !important;
+} */
 </style>
 
 <div
   class="oh-sidebar"
-  style="position: -webkit-sticky; position: sticky; top: 0;height:100vh; overflow-x:hidden;"
+  style="position: -webkit-sticky; position: sticky; top: 80px;height:100vh; overflow-x:visible; "
 >
-<div class="oh-sidebar__company" style="padding: 14px">
-    {% if request.session.selected_company_instance %}
-    <span class="mr-3">
-      {% if not request.session.selected_company_instance %}
-      <img
-      src="https://ui-avatars.com/api/?name=C&background=random"
-      style="width: 34px; border-radius: 3px"
-      />
-      {% else %}
-      <img
-      src="{{request.session.selected_company_instance.icon}}"
-      style="width: 34px; border-radius: 3px"
-      />
-      {% endif %}
-    </span>
-    <div class="oh-sidebar__company-details">
-      <span class="oh-sidebar__company-title" style="font-size: 13px"
-      >{{request.session.selected_company_instance.company}}.</span
-      >
-      <a href="#" class="oh-sidebar__company-link" style="font-size: 10px"
-      >{% trans request.session.selected_company_instance.text %}</a
-      >
-    </div>
-    {% else %}
-    <span class="mr-3">
-      {% if request.user.employee_get.employee_work_info.company_id.icon == None %}
-      <img
-      src="https://ui-avatars.com/api/?name=C&background=random"
-      style="width: 34px; border-radius: 3px"
-      />
-      {% else %}
-      <img
-      src="{{request.user.employee_get.employee_work_info.company_id.icon.url}}"
-      style="width: 34px; border-radius: 3px"
-      />
-      {% endif %}
-    </span>
-    <div class="oh-sidebar__company-details">
-      <span class="oh-sidebar__company-title" style="font-size: 13px"
-      >{{request.user.employee_get.employee_work_info.company_id}}.</span
-      >
-      <a href="#" class="oh-sidebar__company-link" style="font-size: 10px"
-      >{% trans "My Company" %}</a
-      >
-    </div>
-    {% endif %}
-  </div>
-  <div class="oh-sidebar__menu">
-    <ul class="oh-sidebar__menu-items">
+
+  <div class="oh-sidebar__menu" >
+    <ul class="oh-sidebar__menu-items" >
       <li
         class="oh-sidebar__menu-item"
         x-data="{ isOpen: getOpenState('dashboardNav') }"
+       
       >
         <a
           href="{%url 'home-page' %}"
@@ -138,53 +164,64 @@ function initializeSummernote(candId,searchWords,) {
           <span>{% trans "Dashboard" %}</span>
         </a>
       </li>
-      {% for menues in sidebar %}
-      <li
-        class="oh-sidebar__menu-item"
-        x-data="{ isOpen: getOpenState('{{menues.app}}GenericNav') }"
-      >
-        <a
-          class="oh-sidebar__menu-link"
-          data-id="{{menues.app}}GenericNav"
-          x-on:click.prevent="isOpen = !isOpen; saveOpenState('{{menues.app}}GenericNav', isOpen)"
-          x-bind:class="isOpen ? 'oh-sidebar__menu-link--active' : ''"
-          style="cursor: pointer"
-        >
-        <div class="oh-sidebar__menu-icon">
-          <img
-            src="{% static menues.img_src %}"
-            alt="Dashboard"
-            style="filter: brightness(0) invert(1);"
-            width="24"
-            height="24"
-          />
-        </div>
-        <span>
-            {{menues.menu}}
-        </span>
+{% for menues in sidebar %}
+
+<li
+  class="oh-sidebar__menu-item"
+  x-data="{ isOpen: getOpenState('{{menues.app}}GenericNav') }"
+>
+{% if menues.menu == 'Reports' %}
+<a
+  class="oh-sidebar__menu-link"
+  href="/under-construction/"
+  style="cursor: pointer"
+  onclick="handleDirectRedirect(event)"
+>
+  {% elif menues.menu == 'Companies' %}
+    <!-- Companies: direct link -->
+    <a href="{% url 'company_index' %}" class="oh-sidebar__menu-link" style="cursor: pointer" onclick="window.location.href=this.href; return false;" >
+{% else %}
+<a
+  class="oh-sidebar__menu-link"
+  data-id="{{menues.app}}GenericNav"
+  x-on:click.prevent="isOpen = !isOpen; saveOpenState('{{menues.app}}GenericNav', isOpen)"
+  x-bind:class="isOpen ? 'oh-sidebar__menu-link--active' : ''"
+  style="cursor: pointer"
+>
+{% endif %}
+
+    <div class="oh-sidebar__menu-icon">
+      <img
+        src="{% static menues.img_src %}"
+        alt="{{ menues.menu }}"
+        style="filter: brightness(0) invert(1);"
+        width="24"
+        height="24"
+      />
+    </div>
+    <span>{{ menues.menu }}</span>
+  </a>
+
+  {% if menues.menu != 'Reports' and menues.menu != 'Companies' %}
+  <div
+    class="oh-sidebar__submenu"
+    id="{{menues.app}}GenericNav"
+    style="display: none"
+  >
+    <ul>
+      {% for submenu in menues.submenu %}
+      <li class="oh-sidebar__submenu-item"  >
+        <a href="{{submenu.redirect}}" class="oh-sidebar__submenu-link">
+          {{submenu.menu}}
         </a>
-        <div
-          class="oh-sidebar__submenu"
-          id="{{menues.app}}GenericNav"
-          style="display: none"
-          x-show="isOpen"
-          x-transition
-        >
-          <ul class="oh-sidebar__submenu-items">
-              {% for submenu in menues.submenu %}
-              <li class="oh-sidebar__submenu-item">
-              <a
-                  href="{{submenu.redirect}}"
-                  class="oh-sidebar__submenu-link"
-              >
-                  {{submenu.menu}}
-              </a>
-              </li>
-              {% endfor %}
-          </ul>
-        </div>
       </li>
       {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</li>
+{% endfor %}
+
 
       {% if request.user|config_perms %}
       <li
@@ -239,8 +276,7 @@ function initializeSummernote(candId,searchWords,) {
         <div
           class="oh-sidebar__submenu"
           id="configNav"
-          x-show="isOpen"
-          x-transition
+       
           style="display: none"
           >
           <ul class="oh-sidebar__submenu-items">
@@ -307,18 +343,72 @@ function initializeSummernote(candId,searchWords,) {
     </ul>
   </div>
 </div>
-<style>
-  .highlight-selected{
-    background-color: rgba(255, 68, 0, 0.134);
-  }
-  .highlight-selected:hover{
-    background-color: rgba(255, 68, 0, 0.1);
-  }
-  .fade-me-out.htmx-swapping {
-		opacity: 0;
-		transition: opacity 1s ease-out;
-	}
-</style>
+
+<script>
+$(".oh-sidebar__menu-item").hover(
+    function () {
+      let menuItem = $(this);
+      let submenu = menuItem.find(".oh-sidebar__submenu");
+      
+      if (submenu.length > 0) {
+        // Get position of the parent menu item relative to the viewport
+        let rect = menuItem[0].getBoundingClientRect();
+        let submenuHeight = submenu.outerHeight();
+        let viewportHeight = $(window).height();
+        
+        // Calculate top position
+        let topPosition = rect.top;
+        
+        // Check if submenu will go off the bottom of the screen
+        if (topPosition + submenuHeight > viewportHeight) {
+          // Position submenu so it ends at the bottom of viewport
+          topPosition = viewportHeight - submenuHeight - 10; // 10px padding from bottom
+          
+          // If still not enough space, align with top of viewport
+          if (topPosition < 10) {
+            topPosition = 10; // 10px padding from top
+          }
+        }
+        
+        // Apply position to the submenu
+        submenu.css({
+          display: "block",
+          top: topPosition + "px",
+          left: rect.right + "px"
+        });
+      }
+    },
+    function () {
+      let submenu = $(this).find(".oh-sidebar__submenu");
+      submenu.hide();
+    }
+  );
+
+  // Hide submenu on sidebar scroll
+  $(".oh-sidebar").scroll(function() {
+      $(".oh-sidebar__submenu").hide();
+  });
+
+  // Prevent body scroll when scrolling inside sidebar
+  $(".oh-sidebar").on("wheel", function(e) {
+    var scrollTop = $(this).scrollTop();
+    var scrollHeight = $(this)[0].scrollHeight;
+    var height = $(this).height();
+    var delta = e.originalEvent.deltaY;
+    
+    // At top and scrolling up
+    if (delta < 0 && scrollTop <= 0) {
+      e.preventDefault();
+    }
+    // At bottom and scrolling down
+    else if (delta > 0 && scrollTop + height >= scrollHeight) {
+      e.preventDefault();
+    }
+    
+    // Stop event from reaching body
+    e.stopPropagation();
+  });
+</script>
 <script>
   $("#sidebar").mouseover(function (e) {
     e.preventDefault();
@@ -339,34 +429,68 @@ function initializeSummernote(candId,searchWords,) {
     }
   });
 
+  // $(".oh-sidebar__menu-link").click(function (e) {
+  //   e.preventDefault();
+  //   const currentActiveNav = $(".oh-sidebar__menu-link--active");
+  //   $(currentActiveNav).removeClass("oh-sidebar__menu-link--active");
+  //   const activeSubMenuId = $(currentActiveNav).attr("data-id");
+  //   $(`#${activeSubMenuId}`).attr("style", "display:none;");
+  //   // Get the JSON object from local storage
+  //   const menuStates = JSON.parse(localStorage.getItem("menuStates"));
+
+  //   // Update the value of a key to false
+  //   menuStates[activeSubMenuId] = false;
+
+  //   // Save the updated object to local storage
+  //   localStorage.setItem("menuStates", JSON.stringify(menuStates));
+
+  //   $(this).toggleClass("oh-sidebar__menu-link--active");
+  //   const submenuId = $(this).attr("data-id");
+  //   const submenu = $(`#${submenuId}`);
+  //   if (submenu.attr("style")) {
+  //     submenu.removeAttr("style");
+  //   } else {
+  //     submenu.attr("style", "display:none;");
+  //   }
+  // });
+  // function getOpenState(id) {
+  //   const menuStates = JSON.parse(localStorage.getItem("menuStates") || "{}");
+  //   return menuStates[id] || false;
+  // }
+
   $(".oh-sidebar__menu-link").click(function (e) {
-    e.preventDefault();
-    const currentActiveNav = $(".oh-sidebar__menu-link--active");
-    $(currentActiveNav).removeClass("oh-sidebar__menu-link--active");
-    const activeSubMenuId = $(currentActiveNav).attr("data-id");
-    $(`#${activeSubMenuId}`).attr("style", "display:none;");
-    // Get the JSON object from local storage
-    const menuStates = JSON.parse(localStorage.getItem("menuStates"));
+  e.preventDefault();
 
-    // Update the value of a key to false
-    menuStates[activeSubMenuId] = false;
+  const submenuId = $(this).attr("data-id");
 
-    // Save the updated object to local storage
-    localStorage.setItem("menuStates", JSON.stringify(menuStates));
+  // 🔸 Special case: if it's the Reports menu, go to the Under Construction page
+if (submenuId === "reportGenericNav") {
+  // Force full reload and reset Horilla breadcrumb
+  window.location.assign(`${window.location.origin}/under-construction/?reload=true`);
+  window.location.reload(true);
+  return;
+}
 
-    $(this).toggleClass("oh-sidebar__menu-link--active");
-    const submenuId = $(this).attr("data-id");
-    const submenu = $(`#${submenuId}`);
-    if (submenu.attr("style")) {
-      submenu.removeAttr("style");
-    } else {
-      submenu.attr("style", "display:none;");
-    }
-  });
-  function getOpenState(id) {
-    const menuStates = JSON.parse(localStorage.getItem("menuStates") || "{}");
-    return menuStates[id] || false;
+
+  // --- Default behavior for all other menus ---
+  // const currentActiveNav = $(".oh-sidebar__menu-link--active");
+  // $(currentActiveNav).removeClass("oh-sidebar__menu-link--active");
+  // const activeSubMenuId = $(currentActiveNav).attr("data-id");
+  // $(`#${activeSubMenuId}`).attr("style", "display:none;");
+
+  const menuStates = JSON.parse(localStorage.getItem("menuStates") || "{}");
+  menuStates[activeSubMenuId] = false;
+  localStorage.setItem("menuStates", JSON.stringify(menuStates));
+
+  $(this).toggleClass("oh-sidebar__menu-link--active");
+  const submenu = $(`#${submenuId}`);
+  if (submenu.attr("style")) {
+    submenu.removeAttr("style");
+  } else {
+    submenu.attr("style", "display:none;");
   }
+});
+
 
   function saveOpenState(id, isOpen) {
     const menuStates = JSON.parse(localStorage.getItem("menuStates") || "{}");
@@ -508,4 +632,11 @@ function initializeSummernote(candId,searchWords,) {
       $("#filterCount").text(`(${count})`);
     }
   }
+
+  function handleDirectRedirect(e) {
+  e.preventDefault();
+  // force clean navigation (no SPA behavior)
+  window.location.replace(`${window.location.origin}/under-construction/`);
+}
+
 </script>

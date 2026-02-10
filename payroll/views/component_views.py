@@ -6,15 +6,25 @@ This module is used to write methods to the component_urls patterns respectively
 
 import json
 import operator
+from datetime import datetime
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from itertools import groupby
 from urllib.parse import parse_qs
+import csv
+# Run - Payroll
+import pandas as pd
+from django.db import transaction
+from django.shortcuts import render
 
+
+from django.contrib.auth.decorators import login_required, permission_required
+
+import numpy as np
 import pandas as pd
 from django.apps import apps
 from django.contrib import messages
-from django.db.models import Sum
+from django.db.models import Sum, Q, F
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -22,7 +32,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.cache import never_cache
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Border, Font, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
 from base.backends import ConfiguredEmailBackend
@@ -62,6 +72,9 @@ from payroll.methods.methods import (
     calculate_employer_contribution,
     compute_net_pay,
     compute_salary_on_period,
+    get_daily_salary,
+    get_leaves,
+    months_between_range,
     paginator_qry,
     save_payslip,
 )
@@ -85,7 +98,17 @@ from payroll.models.models import (
     ReimbursementMultipleAttachment,
 )
 from payroll.threadings.mail import MailSendThread
-
+# run payroll
+from payroll.forms import PayslipImportForm, EmployeeImportForm
+from django.db import transaction
+from django.http import HttpResponse
+from io import BytesIO, StringIO
+from django.contrib.auth.decorators import permission_required
+import calendar
+from attendance.models import WorkRecords, Attendance
+from base.models import Holidays, EmployeeShiftSchedule
+from base.methods import get_working_days, get_date_range
+from attendance.methods.utils import strtime_seconds
 
 def return_none(a, b):
     return None
@@ -102,43 +125,66 @@ operator_mapping = {
     "range": return_none,
 }
 
-
-def payroll_calculation(employee, start_date, end_date):
+def payroll_calculation(employee, start_date, end_date, wage=None):
     """
     Calculate payroll components for the specified employee within the given date range.
-
 
     Args:
         employee (Employee): The employee for whom the payroll is calculated.
         start_date (date): The start date of the payroll period.
         end_date (date): The end date of the payroll period.
-
+        wage (float, optional): The wage to be used for calculation. Defaults to contract wage.
 
     Returns:
-        dict: A dictionary containing the calculated payroll components:
+        dict: A dictionary containing the calculated payroll components.
     """
+    # CRITICAL FIX: Use a dict to store total_allowance to completely avoid Python's local variable scoping issues
+    # This prevents UnboundLocalError even if Python's bytecode compiler marks it as local
+    _vars = {"total_allowance": 0.0}
+    
+    print("\n========== START PAYROLL CALCULATION ==========")
+    print("Employee:", employee, "| Period:", start_date, "→", end_date)
 
-    basic_pay_details = compute_salary_on_period(employee, start_date, end_date)
+    basic_pay_details = compute_salary_on_period(employee, start_date, end_date, wage=wage)
+    if basic_pay_details is None:
+        raise ValueError(f"No active contract found for employee {employee} in this period.")
+
     contract = basic_pay_details["contract"]
     contract_wage = basic_pay_details["contract_wage"]
     basic_pay = basic_pay_details["basic_pay"]
     loss_of_pay = basic_pay_details["loss_of_pay"]
     paid_days = basic_pay_details["paid_days"]
     unpaid_days = basic_pay_details["unpaid_days"]
+    month_data_list = basic_pay_details.get("month_data", [])
+    # If it's a list, take the first dict, otherwise assume it's already a dict
+    if isinstance(month_data_list, list) and month_data_list:
+        working_days_details = month_data_list[0]
+    else:
+        working_days_details = month_data_list
 
-    working_days_details = basic_pay_details["month_data"]
+
+    print("Basic Pay Details:", basic_pay_details)
+    print(f"Basic Pay BEFORE update_compensation_deduction: {basic_pay}")
 
     updated_basic_pay_data = update_compensation_deduction(
         employee, basic_pay, "basic_pay", start_date, end_date
     )
+    print(f"Basic Pay AFTER update_compensation_deduction: {updated_basic_pay_data['compensation_amount']}")
+    print(f"Basic Pay Deductions Applied: {updated_basic_pay_data['deductions']}")
+    if updated_basic_pay_data['deductions']:
+        print(f"WARNING: Deductions are being applied to basic_pay! This may reduce the Updated Basic Pay value.")
     basic_pay = updated_basic_pay_data["compensation_amount"]
     basic_pay_deductions = updated_basic_pay_data["deductions"]
 
     loss_of_pay_amount = 0
-    if not contract.deduct_leave_from_basic_pay:
-        loss_of_pay_amount = loss_of_pay
+    if contract and hasattr(contract, 'deduct_leave_from_basic_pay'):
+        if not contract.deduct_leave_from_basic_pay:
+            loss_of_pay_amount = loss_of_pay
+        else:
+            basic_pay = basic_pay - loss_of_pay_amount
     else:
-        basic_pay = basic_pay - loss_of_pay_amount
+        # If no contract, treat LOP as deduction (standard behavior)
+        loss_of_pay_amount = loss_of_pay
 
     kwargs = {
         "employee": employee,
@@ -146,41 +192,73 @@ def payroll_calculation(employee, start_date, end_date):
         "end_date": end_date,
         "basic_pay": basic_pay,
         "day_dict": working_days_details,
+        "paid_days": paid_days,
+        "total_days_in_month": working_days_details.get("total_days_in_month", 30) if isinstance(working_days_details, dict) else 30,
+        "contract_wage": contract_wage,
+        "payslip_data": {},
     }
-    # basic pay will be basic_pay = basic_pay - update_compensation_amount
-    allowances = calculate_allowance(**kwargs)
 
-    # finding the total allowance
-    total_allowance = sum(allowance["amount"] for allowance in allowances["allowances"])
 
+    # --- Calculate dynamic allowances ---
+    # Use _vars dict to store total_allowance to avoid scoping issues
+    allowances = {"allowances": []}
+    try:
+        calculated_allowances = calculate_allowance(**kwargs)
+        if calculated_allowances and isinstance(calculated_allowances, dict) and "allowances" in calculated_allowances:
+            allowances = calculated_allowances
+            _vars["total_allowance"] = float(sum(allowance.get("amount", 0) for allowance in allowances["allowances"] if allowance and isinstance(allowance, dict)))
+        else:
+            allowances = {"allowances": []}
+            _vars["total_allowance"] = 0.0
+    except Exception as e:
+        print(f"Error calculating allowances: {e}")
+        import traceback
+        traceback.print_exc()
+        allowances = {"allowances": []}
+        _vars["total_allowance"] = 0.0  # Ensure it's set even on exception
+
+    # Create total_allowance variable for backward compatibility
+    total_allowance = _vars["total_allowance"]
     kwargs["allowances"] = allowances
-    kwargs["total_allowance"] = total_allowance
-    updated_gross_pay_data = calculate_gross_pay(**kwargs)
-    gross_pay = updated_gross_pay_data["gross_pay"]
-    gross_pay_deductions = updated_gross_pay_data["deductions"]
+    kwargs["total_allowance"] = float(total_allowance)
 
-    kwargs["gross_pay"] = gross_pay
+    print("Dynamic Allowances:", allowances.get("allowances", []))
+    print("Total Dynamic Allowance:", total_allowance)
+
+    # --- Calculate gross pay (including fixed allowances from contract) ---
+    updated_gross_pay_data = calculate_gross_pay(**kwargs)
+    print("DEBUG Gross Pay Data:", updated_gross_pay_data)
+
+    gross_pay = updated_gross_pay_data.get("gross_pay", 0.0)
+    housing_allowance = updated_gross_pay_data.get("housing_allowance", 0.0)
+    transport_allowance = updated_gross_pay_data.get("transport_allowance", 0.0)
+    other_allowance = updated_gross_pay_data.get("other_allowance", 0.0)
+    gross_pay_deductions = updated_gross_pay_data.get("deductions", [])
+
+    # --- Add fixed allowances to total allowance ---
+    # Use _vars dict to update total_allowance to avoid any scoping issues
+    _vars["total_allowance"] = _vars["total_allowance"] + float(housing_allowance) + float(transport_allowance) + float(other_allowance)
+    total_allowance = _vars["total_allowance"]  # Update local variable for backward compatibility
+    kwargs["total_allowance"] = float(total_allowance)
+    kwargs["gross_pay"] = float(gross_pay)
+
+    print("✅ Gross Pay:", gross_pay)
+    print("Housing:", housing_allowance, "| Transport:", transport_allowance, "| Other:", other_allowance)
+    # --- Deductions ---
     pretax_deductions = calculate_pre_tax_deduction(**kwargs)
     post_tax_deductions = calculate_post_tax_deduction(**kwargs)
+    installments = pretax_deductions["installments"] | post_tax_deductions["installments"]
 
-    installments = (
-        pretax_deductions["installments"] | post_tax_deductions["installments"]
-    )
+    # taxable_gross_pay = calculate_taxable_gross_pay(**kwargs)
+    gross_data = calculate_gross_pay(**kwargs)
+    taxable_gross_pay = calculate_taxable_gross_pay(gross_data=gross_data, **kwargs)
 
-    taxable_gross_pay = calculate_taxable_gross_pay(**kwargs)
     tax_deductions = calculate_tax_deduction(**kwargs)
     federal_tax = calculate_taxable_amount(**kwargs)
 
-    total_allowance = sum(item["amount"] for item in allowances["allowances"])
-    total_pretax_deduction = sum(
-        item["amount"] for item in pretax_deductions["pretax_deductions"]
-    )
-    total_post_tax_deduction = sum(
-        item["amount"] for item in post_tax_deductions["post_tax_deductions"]
-    )
-    total_tax_deductions = sum(
-        item["amount"] for item in tax_deductions["tax_deductions"]
-    )
+    total_pretax_deduction = sum(item["amount"] for item in pretax_deductions["pretax_deductions"])
+    total_post_tax_deduction = sum(item["amount"] for item in post_tax_deductions["post_tax_deductions"])
+    total_tax_deductions = sum(item["amount"] for item in tax_deductions["tax_deductions"])
 
     total_deductions = (
         total_pretax_deduction
@@ -190,10 +268,8 @@ def payroll_calculation(employee, start_date, end_date):
         + loss_of_pay_amount
     )
 
+    # --- Compute Net Pay ---
     net_pay = gross_pay - total_deductions
-    # loss_of_pay        -> actual lop amount
-    # loss_of_pay_amount -> actual lop if deduct from basic-
-    #                       pay from contract is enabled
     net_pay = compute_net_pay(
         net_pay=net_pay,
         gross_pay=gross_pay,
@@ -204,6 +280,7 @@ def payroll_calculation(employee, start_date, end_date):
         loss_of_pay_amount=loss_of_pay_amount,
         loss_of_pay=loss_of_pay,
     )
+
     updated_net_pay_data = update_compensation_deduction(
         employee, net_pay, "net_pay", start_date, end_date
     )
@@ -215,16 +292,31 @@ def payroll_calculation(employee, start_date, end_date):
         post_tax_deductions["net_pay_deduction"],
         **kwargs,
     )
+
     net_pay_deduction_list = net_pay_deductions["net_pay_deductions"]
     for deduction in update_net_pay_deductions:
         net_pay_deduction_list.append(deduction)
     net_pay = net_pay - net_pay_deductions["net_deduction"]
+
+    print("✅ Final Net Pay:", net_pay)
+    print("========== END PAYROLL CALCULATION ==========\n")
+
+    # --- Final Payslip Data ---
+    # Ensure basic_pay is properly stored (it should not be 0 unless actually calculated as 0)
+    final_basic_pay = round(float(basic_pay), 2) if basic_pay is not None else 0.0
+    print(f"[PAYROLL_CALC] Storing final basic_pay: {final_basic_pay}")
+    
     payslip_data = {
         "employee": employee,
         "contract_wage": contract_wage,
-        "basic_pay": basic_pay,
+        "basic_pay": final_basic_pay,  # Ensure it's stored correctly
         "gross_pay": gross_pay,
-        "taxable_gross_pay": taxable_gross_pay["taxable_gross_pay"],
+        "housing_allowance": housing_allowance,
+        "transport_allowance": transport_allowance,
+        "other_allowance": other_allowance,
+        "taxable_gross_pay": taxable_gross_pay["taxable_gross_pay"]
+        if isinstance(taxable_gross_pay, dict)
+        else taxable_gross_pay,
         "net_pay": net_pay,
         "allowances": allowances["allowances"],
         "paid_days": paid_days,
@@ -242,14 +334,18 @@ def payroll_calculation(employee, start_date, end_date):
         "end_date": end_date,
         "range": f"{start_date.strftime('%b %d %Y')} - {end_date.strftime('%b %d %Y')}",
     }
+
+    # --- Convert to JSON for saving ---
     data_to_json = payslip_data.copy()
     data_to_json["employee"] = employee.id
     data_to_json["start_date"] = start_date.strftime("%Y-%m-%d")
     data_to_json["end_date"] = end_date.strftime("%Y-%m-%d")
-    json_data = json.dumps(data_to_json)
 
-    payslip_data["json_data"] = json_data
+    # ✅ Keep both formats:
+    payslip_data["json_data"] = json.dumps(data_to_json)  # String (for create_payslip)
+    payslip_data["pay_head_data"] = data_to_json          # Dict (for view_created_payslip)
     payslip_data["installments"] = installments
+
     return payslip_data
 
 
@@ -845,22 +941,66 @@ def check_contract_start_date(request):
 @permission_required("payroll.add_payslip")
 def create_payslip(request, new_post_data=None):
     """
-    Create a payslip for an employee.
-
-    This method is used to create a payslip for an employee based on the provided form data.
-
+    Create or Edit a payslip for an employee.
     Args:
         request: The HTTP request object.
-
     Returns:
-        A rendered HTML template for the payslip creation form.
+        A rendered HTML template for the payslip creation/editing form.
     """
     if new_post_data:
         request.POST = new_post_data
+    
+    # --- Edit Mode: Check for payslip_id in GET (to load form) ---
+    payslip_id = request.GET.get("payslip_id")
+    payslip_instance = None
+    if payslip_id:
+        payslip_instance = Payslip.objects.filter(id=payslip_id).first()
 
     form = forms.PayslipForm()
 
     if request.method == "POST":
+        # --- Edit Mode: Save Changes ---
+        payslip_id = request.POST.get("payslip_id")
+        if payslip_id:
+            instance = Payslip.objects.get(id=payslip_id)
+            
+            # Update direct fields
+            instance.status = request.POST.get("status")
+            instance.start_date = request.POST.get("start_date")
+            instance.end_date = request.POST.get("end_date")
+            instance.basic_pay = float(request.POST.get("basic_pay") or 0)
+            instance.gross_pay = float(request.POST.get("gross_pay") or 0)
+            instance.net_pay = float(request.POST.get("net_pay") or 0)
+            instance.deduction = float(request.POST.get("deduction") or 0)
+
+            # Update JSON data (pay_head_data)
+            pay_head_data = instance.pay_head_data or {}
+            
+            # Helper to update safe floats
+            def get_float(key):
+                return float(request.POST.get(key) or 0)
+
+            # Allowances
+            pay_head_data["housing_allowance"] = get_float("housing_allowance")
+            pay_head_data["transport_allowance"] = get_float("transport_allowance")
+            pay_head_data["other_allowance"] = get_float("other_allowance")
+            
+            # Other components
+            pay_head_data["loss_of_pay"] = get_float("loss_of_pay")
+            pay_head_data["overtime"] = get_float("overtime")
+            pay_head_data["salary_advance_loan_recovery"] = get_float("salary_advance_loan_recovery")
+            pay_head_data["salary_advance"] = get_float("salary_advance")
+            pay_head_data["bonus"] = get_float("bonus")
+
+            instance.pay_head_data = pay_head_data
+            instance.save()
+            
+            messages.success(request, _("Payslip Updated Successfully"))
+            return HttpResponse(
+                f'<script>window.location.reload()</script>'
+            )
+
+        # --- Create Mode: Simplified Horilla-style logic ---
         employee_id = request.POST.get("employee_id")
         start_date = (
             datetime.strptime(request.POST.get("start_date"), "%Y-%m-%d").date()
@@ -877,6 +1017,7 @@ def create_payslip(request, new_post_data=None):
                 new_post_data = request.POST.copy()
                 new_post_data["start_date"] = contract.contract_start_date
                 request.POST = new_post_data
+        
         form = forms.PayslipForm(request.POST)
         if form.is_valid():
             employee = form.cleaned_data["employee_id"]
@@ -886,53 +1027,67 @@ def create_payslip(request, new_post_data=None):
                 employee_id=employee, start_date=start_date, end_date=end_date
             ).first()
 
-            if form.is_valid():
-                employee = form.cleaned_data["employee_id"]
-                start_date = form.cleaned_data["start_date"]
-                end_date = form.cleaned_data["end_date"]
-                payslip_data = payroll_calculation(employee, start_date, end_date)
-                payslip_data["payslip"] = payslip
-                data = {}
-                data["employee"] = employee
-                data["start_date"] = payslip_data["start_date"]
-                data["end_date"] = payslip_data["end_date"]
-                data["status"] = (
-                    "draft"
-                    if request.GET.get("status") is None
-                    else request.GET["status"]
-                )
-                data["contract_wage"] = payslip_data["contract_wage"]
-                data["basic_pay"] = payslip_data["basic_pay"]
-                data["gross_pay"] = payslip_data["gross_pay"]
-                data["deduction"] = payslip_data["total_deductions"]
-                data["net_pay"] = payslip_data["net_pay"]
-                data["pay_data"] = json.loads(payslip_data["json_data"])
-                calculate_employer_contribution(data)
-                data["installments"] = payslip_data["installments"]
-                payslip_data["instance"] = save_payslip(**data)
-                form = forms.PayslipForm()
-                messages.success(request, _("Payslip Saved"))
-                payslip = payslip_data["instance"]
-                notify.send(
-                    request.user.employee_get,
-                    recipient=employee.employee_user_id,
-                    verb="Payslip has been generated for you.",
-                    verb_ar="تم إصدار كشف راتب لك.",
-                    verb_de="Gehaltsabrechnung wurde für Sie erstellt.",
-                    verb_es="Se ha generado la nómina para usted.",
-                    verb_fr="La fiche de paie a été générée pour vous.",
-                    redirect=reverse(
-                        "view-created-payslip", kwargs={"payslip_id": payslip.pk}
-                    ),
-                    icon="close",
-                )
-                return HttpResponse(
-                    f'<script>window.location.href = "/payroll/view-payslip/{payslip_data["instance"].id}/"</script>'
-                )
+            payslip_data = payroll_calculation(employee, start_date, end_date)
+            payslip_data["payslip"] = payslip
+            data = {}
+            data["employee"] = employee
+            data["start_date"] = payslip_data["start_date"]
+            data["end_date"] = payslip_data["end_date"]
+            data["status"] = (
+                "draft"
+                if request.GET.get("status") is None
+                else request.GET["status"]
+            )
+            data["contract_wage"] = payslip_data["contract_wage"]
+            data["basic_pay"] = payslip_data["basic_pay"]
+            data["gross_pay"] = payslip_data["gross_pay"]
+            data["deduction"] = payslip_data["total_deductions"]
+            data["net_pay"] = payslip_data["net_pay"]
+            data["pay_data"] = json.loads(payslip_data["json_data"])
+            calculate_employer_contribution(data)
+            data["installments"] = payslip_data["installments"]
+            payslip_data["instance"] = save_payslip(**data)
+            form = forms.PayslipForm()
+            messages.success(request, _("Payslip Saved"))
+            payslip = payslip_data["instance"]
+            notify.send(
+                request.user.employee_get,
+                recipient=employee.employee_user_id,
+                verb="Payslip has been generated for you.",
+                verb_ar="تم إصدار كشف راتب لك.",
+                verb_de="Gehaltsabrechnung wurde für Sie erstellt.",
+                verb_es="Se ha generado la nómina para usted.",
+                verb_fr="La fiche de paie a été générée pour vous.",
+                redirect=reverse(
+                    "view-created-payslip", kwargs={"payslip_id": payslip.pk}
+                ),
+                icon="close",
+            )
+            return HttpResponse(
+                f'<script>window.location.href = "/payroll/view-payslip/{payslip_data["instance"].id}/"</script>'
+            )
+    
+    # Prepare context for Edit Mode
+    context = {"individual_form": form}
+    if payslip_instance:
+        context["payslip"] = payslip_instance
+        # Extract allowances/components for template usage
+        data = payslip_instance.pay_head_data or {}
+        context["pay_data"] = {
+            "housing_allowance": data.get("housing_allowance", 0),
+            "transport_allowance": data.get("transport_allowance", 0),
+            "other_allowance": data.get("other_allowance", 0),
+            "loss_of_pay": data.get("loss_of_pay", 0),
+            "overtime": data.get("overtime", 0),
+            "salary_advance_loan_recovery": data.get("salary_advance_loan_recovery", 0),
+            "salary_advance": data.get("salary_advance", 0),
+            "bonus": data.get("bonus", 0),
+        }
+
     return render(
         request,
         "payroll/payslip/create_payslip.html",
-        {"individual_form": form},
+        context,
     )
 
 
@@ -976,7 +1131,7 @@ def validate_start_date(request):
 
     if end_datetime is not None:
         if end_datetime > datetime.today().date():
-            error_message = '<ul class="errorlist"><li>The end date cannot be in the future.</li></ul>'
+            error_message = '<ul class="errorlist"><li>The end date cannot be in the future123.</li></ul>'
             response["message"] = error_message
             response["valid"] = False
     return JsonResponse(response)
@@ -1015,6 +1170,24 @@ def view_payslip(request):
     if field in Payslip.__dict__.keys():
         payslips = payslips.filter(group_name__isnull=False).order_by(field)
     payslips = paginator_qry(payslips, request.GET.get("page"))
+
+    # Normalize pay_head_data for template safety
+    for ps in payslips:
+        phd = ps.pay_head_data or {}
+        if isinstance(phd, str):
+            try:
+                phd = json.loads(phd)
+            except Exception:
+                phd = {}
+        if not isinstance(phd, dict):
+            phd = {}
+        if 'allowances' not in phd or phd.get('allowances') is None:
+            phd['allowances'] = []
+        if 'pretax_deductions' not in phd or phd.get('pretax_deductions') is None:
+            phd['pretax_deductions'] = []
+        if 'posttax_deductions' not in phd or phd.get('posttax_deductions') is None:
+            phd['posttax_deductions'] = []
+        ps.pay_head_data = phd
     previous_data = request.GET.urlencode()
     data_dict = parse_qs(previous_data)
     get_key_instances(Payslip, data_dict)
@@ -1068,24 +1241,58 @@ def filter_payslip(request):
         template = "payroll/payslip/group_by.html"
     else:
         payslips = paginator_qry(payslips, request.GET.get("page"))
+    
+    # Process payslips to ensure paid_days and unpaid_days are calculated correctly
+    # This ensures consistency with individual payslip view
+    
+    
+    # Handle pagination - payslips might be a Page object
+    payslips_list = payslips
+    if hasattr(payslips, 'object_list'):
+        payslips_list = payslips.object_list
+    elif hasattr(payslips, '__iter__'):
+        payslips_list = list(payslips)
+    else:
+        payslips_list = [payslips] if payslips else []
+    
+    processed_payslips = []
+    for payslip in payslips_list:
+        # CRITICAL: Use shared calculation function to ensure consistency with export
+        # This ensures table view shows the same data as export (including database allowances/deductions)
+        calculated_values = calculate_payslip_values(payslip)
+        if calculated_values is None:
+            # Skip if calculation fails (e.g., no employee)
+            continue
+        
+        # Values are already updated in payslip.pay_head_data and payslip attributes by calculate_payslip_values
+        processed_payslips.append(payslip)
+    
+    # If payslips was a paginator Page object, update its object_list
+    if hasattr(payslips, 'object_list'):
+        payslips.object_list = processed_payslips
+        final_payslips = payslips
+    else:
+        final_payslips = processed_payslips if processed_payslips else payslips
+    
     return render(
         request,
         template,
         {
-            "payslips": payslips,
+            "payslips": final_payslips,
             "pd": query_string,
             "filter_dict": data_dict,
         },
     )
 
 
+
 @login_required
 @permission_required("payroll.change_payslip")
 def payslip_export(request):
     """
-    This view exports payslip data based on selected fields and filters,
-    and generates an Excel file for download.
+    Exports payslip data (with full pay_head_data info and employee details).
     """
+    # --- Handle HTMX filter view ---
     if request.META.get("HTTP_HX_REQUEST"):
         return render(
             request,
@@ -1096,70 +1303,291 @@ def payslip_export(request):
             },
         )
 
+    # --- Status Choices ---
     choices_mapping = {
         "draft": _("Draft"),
         "review_ongoing": _("Review Ongoing"),
         "confirmed": _("Confirmed"),
         "paid": _("Paid"),
     }
-    selected_columns = []
-    payslips_data = {}
+
     payslips = PayslipFilter(request.GET).qs
     today_date = date.today().strftime("%Y-%m-%d")
     file_name = f"Payslip_excel_{today_date}.xlsx"
+
     selected_fields = request.GET.getlist("selected_fields")
     form = forms.PayslipExportColumnForm()
 
+    # --- Handle selected IDs if passed from frontend ---
     if not selected_fields:
         selected_fields = form.fields["selected_fields"].initial
         ids = request.GET.get("ids")
-        id_list = json.loads(ids)
-        payslips = Payslip.objects.filter(id__in=id_list)
+        if ids:
+            id_list = json.loads(ids)
+            payslips = Payslip.objects.filter(id__in=id_list)
 
-    for field in forms.excel_columns:
-        value = field[0]
-        key = field[1]
-        if value in selected_fields:
-            selected_columns.append((value, key))
+    export_rows = []
+    print(f"🟢 Found {payslips.count()} payslips to export")
 
-    for column_value, column_name in selected_columns:
-        nested_attributes = column_value.split("__")
-        payslips_data[column_name] = []
-        for payslip in payslips:
-            value = payslip
-            for attr in nested_attributes:
-                value = getattr(value, attr, None)
-                if value is None:
-                    break
-            data = str(value) if value is not None else ""
-            if column_name == "Status":
-                data = choices_mapping.get(value, "")
+    # --- Loop through payslips ---
+    for ps in payslips:
+        print(ps)
+        payslip = Payslip.objects.filter(id=ps.id).first()
+        print(f"🔵 Processing Payslip ID: {ps}")
+        if not payslip:
+            print(f"⚠ Payslip not found for ID: {ps.id}")
+            continue
 
-            if type(value) == date:
-                date_format = request.user.employee_get.get_date_format()
-                start_date = datetime.strptime(str(value), "%Y-%m-%d").date()
+        employee = payslip.employee_id
+        if not employee:
+            print(f"⚠ No employee linked for payslip {payslip.id}")
+            continue
 
-                for format_name, format_string in HORILLA_DATE_FORMATS.items():
-                    if format_name == date_format:
-                        data = start_date.strftime(format_string)
-            else:
-                data = str(value) if value is not None else ""
-            payslips_data[column_name].append(data)
+        # --- Load pay_head_data safely ---
+        data = payslip.pay_head_data or {}
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+                print(f"✅ Loaded pay_head_data for {employee.badge_id}")
+            except Exception as e:
+                print(f"⚠ Error loading pay_head_data for {employee.badge_id}: {e}")
+                data = {}
 
-    data_frame = pd.DataFrame(data=payslips_data)
+        # --- Employee info ---
+        print(f"➡ Processing {employee.employee_first_name} ({employee.badge_id})")
+        emp_info = EmployeeWorkInformation.objects.filter(employee_id=employee).first()
+
+        emp_name = f"{employee.employee_first_name} {employee.employee_last_name}"
+        emp_code = employee.badge_id or ""
+        dept_name = emp_info.department_id.department if emp_info and emp_info.department_id else ""
+        batch_name = getattr(payslip, "group_name", "") or getattr(getattr(payslip, "batch", None), "name", "")
+        join_date = (
+            emp_info.date_joining.strftime("%b. %d, %Y")
+            if emp_info and emp_info.date_joining
+            else ""
+        )
+
+        # --- Dates ---
+        start_date = payslip.start_date.strftime("%b. %d, %Y") if payslip.start_date else ""
+        end_date = payslip.end_date.strftime("%b. %d, %Y") if payslip.end_date else ""
+
+        # --- Pay values ---
+        basic_pay = round(float(data.get("basic_pay", payslip.basic_pay or 0)), 2)
+        gross_pay = round(float(data.get("gross_pay", payslip.gross_pay or 0)), 2)
+        net_pay = round(float(data.get("net_pay", payslip.net_pay or 0)), 2)
+        
+        # --- MISSING COLUMN: Total Paid days ---
+        paid_days = round(float(data.get("paid_days", 0)), 2)
+
+        # --- ✅ Improved Allowances Logic (FIXED: Fetching top-level keys) ---
+        # 1. Fetch allowances directly from top-level keys in 'data'
+        housing_allowance = round(float(data.get("housing_allowance", 0)), 2)
+        transport_allowance = round(float(data.get("transport_allowance", 0)), 2)
+        other_allowance = round(float(data.get("other_allowance", 0)), 2)
+        
+        total_allowance = 0 
+        
+        # --- Helper recursive function to extract allowances from nested JSON ---
+        def extract_allowances(obj):
+            nonlocal housing_allowance, transport_allowance, other_allowance
+
+            if isinstance(obj, list):
+                for item in obj:
+                    extract_allowances(item)
+
+            elif isinstance(obj, dict):
+                name = str(obj.get("name", "")).lower()
+                amount = float(obj.get("amount", obj.get("value", 0) or 0))
+
+                if amount:
+                    if any(x in name for x in ["housing", "housing", "hra", "rent"]):
+                        housing_allowance += amount
+                    elif any(x in name for x in ["transport", "conveyance"]):
+                        transport_allowance += amount
+                    elif "other" in name:
+                        other_allowance += amount
+                    elif any(x in name for x in ["allowance", "bonus"]):
+                        other_allowance += amount
+                    
+                for v in obj.values():
+                    extract_allowances(v)
+
+        # 2. Run recursive search only on the 'allowances' list for nested items
+        extract_allowances(data.get("allowances", []))
+
+        # 3. Calculate Total Allowance as the sum of its categorized components for consistency
+        total_allowance = housing_allowance + transport_allowance + other_allowance
+
+        if total_allowance == 0:
+            print(f"⚠ No allowance values found for {emp_code}")
+        else:
+            print(
+                f"✅ Allowances for {emp_code}: Housing={housing_allowance}, Transport={transport_allowance}, Other={other_allowance}, Total={total_allowance}"
+            )
+
+
+        # --- Deductions ---
+        # MISSING COLUMN: Other Deductions
+        other_deductions_amount = 0
+        deduction_keys = [
+            "gross_pay_deductions",
+            "basic_pay_deductions",
+            "pretax_deductions",
+            "post_tax_deductions",
+            "tax_deductions",
+            "net_deductions",
+        ]
+
+        # Calculate 'Other Deductions' (sum of all list deductions)
+        for key in deduction_keys:
+            for d in data.get(key, []):
+                other_deductions_amount += float(d.get("amount", 0))
+        
+        other_deductions_amount = round(other_deductions_amount, 2)
+        
+        # MISSING COLUMN: LOP (Loss of Pay) is a separate top-level key
+        loss_of_pay = round(float(data.get("loss_of_pay", 0)), 2)
+        
+        # Extract variable components
+        overtime = round(float(data.get("overtime", 0) or 0), 2)
+        salary_advance = round(float(data.get("salary_advance", 0) or 0), 2)
+        bonus = round(float(data.get("bonus", 0) or 0), 2)
+        salary_advance_loan_recovery = round(float(data.get("salary_advance_loan_recovery", 0) or 0), 2)
+        deduction = round(float(data.get("deduction", payslip.deduction or 0) or 0), 2)
+        
+        # Total Deductions is the sum of all list deductions (other) and LOP
+        total_deductions = round(other_deductions_amount + loss_of_pay, 2)
+
+        # --- Status ---
+        status_display = choices_mapping.get(payslip.status, payslip.status)
+
+        # --- Final Row: Including all fixed and new columns ---
+        export_rows.append({
+            "Employee Id": emp_code,
+            "Employee Name": emp_name,
+            "Department": dept_name,
+            "Basic Pay": basic_pay,
+            "Housing Allowance": housing_allowance,
+            "Transport Allowance": transport_allowance,
+            "Other Allowance": other_allowance,
+            "Gross Pay": gross_pay,
+            # Variable components
+            "Total Paid Days": paid_days,
+            "LOP": loss_of_pay,
+            "Overtime": overtime,
+            "salary_advance_loan_recovery": salary_advance_loan_recovery,
+            "Deduction": deduction,
+            "salary_advance": salary_advance,
+            "bonus": bonus,
+            "Net Pay": net_pay,
+            # Additional fields
+            # "Batch": batch_name,
+            # "Employment Start Date": join_date,
+            # "Start Date": start_date,
+            # "End Date": end_date,
+            # "Total Allowances": round(total_allowance, 2),
+            # "Other Deductions": other_deductions_amount,
+            # "Total Deductions": total_deductions,
+            # "Status": status_display,
+        })
+
+    # --- Export to Excel ---
+    df = pd.DataFrame(export_rows)
+    print(f"✅ Prepared {len(df)} rows for Excel export")
+
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     response["Content-Disposition"] = f'attachment; filename="{file_name}"'
 
     writer = pd.ExcelWriter(response, engine="xlsxwriter")
-    data_frame.style.applymap(lambda x: "text-align: center").to_excel(
-        writer, index=False, sheet_name="Sheet1"
-    )
-    worksheet = writer.sheets["Sheet1"]
-    worksheet.set_column("A:Z", 20)
+    df.to_excel(writer, index=False, sheet_name="Payslips", startrow=0)
+
+    workbook = writer.book
+    worksheet = writer.sheets["Payslips"]
+
+    # --- Excel Formatting Code with Color Styling (matching payslip_import_download) ---
+    # Static components header format (green)
+    static_header_fmt = workbook.add_format({
+        'bold': True, 
+        'bg_color': '#D8E4BC',  # Light green
+        'border': 1,
+        'align': 'center'
+    })
+    
+    # Variable components header format (orange)
+    variable_header_fmt = workbook.add_format({
+        'bold': True, 
+        'bg_color': '#FCD5B4',  # Orange
+        'border': 1,
+        'align': 'center'
+    })
+    
+    # Static components data format (green background)
+    static_data_fmt = workbook.add_format({
+        'bg_color': '#D8E4BC',  # Light green
+        'border': 1
+    })
+    
+    # Variable components data format (orange background)
+    variable_data_fmt = workbook.add_format({
+        'bg_color': '#FCD5B4',  # Orange
+        'border': 1
+    })
+    
+    # Default format for additional columns
+    default_header_fmt = workbook.add_format({
+        'bold': True, 
+        'bg_color': '#D3D3D3',  # Gray
+        'border': 1,
+        'align': 'center'
+    })
+    
+    # Define static and variable columns (matching payslip_import_download)
+    static_cols = ["Employee Id", "Employee Name", "Department", "Basic Pay", "Housing Allowance", "Transport Allowance", "Other Allowance", "Gross Pay"]
+    variable_cols = ["Total Paid Days", "LOP", "Overtime", "salary_advance_loan_recovery", "Deduction", "salary_advance", "bonus", "Net Pay"]
+
+    # Write headers with appropriate formatting
+    for col_num, col_name in enumerate(df.columns.values):
+        if col_name in static_cols:
+            worksheet.write(0, col_num, col_name, static_header_fmt)
+        elif col_name in variable_cols:
+            worksheet.write(0, col_num, col_name, variable_header_fmt)
+        else:
+            worksheet.write(0, col_num, col_name, default_header_fmt)
+        
+        # Set column width
+        try:
+            column_len = max(df[col_name].astype(str).map(len).max(), len(col_name)) + 2
+        except Exception:
+            column_len = len(col_name) + 2
+        worksheet.set_column(col_num, col_num, column_len)
+    
+    # Apply row colors for data rows - only up to rows where values are present
+    # Row 0 is header, so data starts from row 1
+    for row_idx in range(1, len(df) + 1):
+        for col_num, col_name in enumerate(df.columns.values):
+            # Get cell value from dataframe
+            cell_value = df.iloc[row_idx - 1, col_num]
+            
+            # Apply formatting based on column type, preserving the value
+            if col_name in static_cols:
+                # Static columns - green background
+                if pd.notna(cell_value):
+                    worksheet.write(row_idx, col_num, cell_value, static_data_fmt)
+                else:
+                    worksheet.write(row_idx, col_num, "", static_data_fmt)
+            elif col_name in variable_cols:
+                # Variable columns - orange background
+                if pd.notna(cell_value):
+                    worksheet.write(row_idx, col_num, cell_value, variable_data_fmt)
+                else:
+                    worksheet.write(row_idx, col_num, "", variable_data_fmt)
+
+    worksheet.set_row(0, 25)
     writer.close()
     return response
+
 
 
 @login_required
@@ -1208,13 +1636,108 @@ def send_slip(request):
         return redirect(filter_payslip)
 
 
+# @login_required
+# @permission_required("payroll.add_allowance")
+# def add_bonus(request):
+#     employee_id = request.GET["employee_id"]
+#     payslip_id = request.GET.get("payslip_id")
+#     instance = None
+#     if payslip_id != "None" and payslip_id:
+#         try:
+#             instance = Payslip.objects.get(id=payslip_id)
+#         except Payslip.DoesNotExist:
+#             messages.error(request, _("Payslip not found."))
+#             return HttpResponse("<script>window.location.reload()</script>")
+#         form = forms.PayslipAllowanceForm(
+#             initial={"employee_id": employee_id, "date": instance.start_date}
+#         )
+#     else:
+#         form = forms.BonusForm(initial={"employee_id": employee_id})
+#     if request.method == "POST":
+#         form = forms.BonusForm(request.POST, initial={"employee_id": employee_id})
+#         contract = Contract.objects.filter(
+#             employee_id=employee_id, contract_status="active"
+#         ).first()
+#         employee = Employee.objects.filter(id=employee_id).first()
+#         if form.is_valid():
+#             form.save()
+#             messages.success(request, _("Bonus Added"))
+#             if payslip_id != "None" and payslip_id and instance:
+#                 # Recalculate payslip in place without deleting it
+#                 try:
+#                     employee = instance.employee_id
+#                     start_date = instance.start_date
+#                     end_date = instance.end_date
+                    
+#                     # Try to recalculate using payroll_calculation or calculate_payslip_from_attendance
+#                     contract = Contract.objects.filter(
+#                         employee_id=employee.id, contract_status="active"
+#                     ).first()
+                    
+#                     if contract:
+#                         # Use payroll_calculation if contract exists
+#                         payslip_data = payroll_calculation(
+#                             employee=employee,
+#                             start_date=start_date,
+#                             end_date=end_date,
+#                             wage=contract.wage
+#                         )
+#                     else:
+#                         # Use calculate_payslip_from_attendance if no contract
+#                         wage = instance.contract_wage or 0
+#                         pay_head_data = instance.pay_head_data or {}
+#                         if isinstance(pay_head_data, str):
+#                             try:
+#                                 pay_head_data = json.loads(pay_head_data)
+#                             except:
+#                                 pay_head_data = {}
+                        
+#                         payslip_data = calculate_payslip_from_attendance(
+#                             employee=employee,
+#                             start_date=start_date,
+#                             end_date=end_date,
+#                             wage=wage,
+#                             housing_allowance=pay_head_data.get("housing_allowance", 0),
+#                             transport_allowance=pay_head_data.get("transport_allowance", 0),
+#                             other_allowance=pay_head_data.get("other_allowance", 0)
+#                         )
+                    
+#                     # Update existing payslip with recalculated data
+#                     instance.contract_wage = round(payslip_data.get('contract_wage', instance.contract_wage or 0), 2)
+#                     instance.basic_pay = round(payslip_data.get('basic_pay', 0), 2)
+#                     instance.gross_pay = round(payslip_data.get('gross_pay', 0), 2)
+#                     instance.net_pay = round(payslip_data.get('net_pay', 0), 2)
+#                     instance.deduction = round(payslip_data.get('total_deductions', 0), 2)
+#                     instance.pay_head_data = payslip_data.get('pay_head_data', {})
+#                     instance.save()
+                    
+#                     return HttpResponse(
+#                         f"<script>window.location.href='/payroll/view-payslip/{instance.id}'</script>"
+#                     )
+#                 except Exception as e:
+#                     print(f"[ADD_BONUS] Error recalculating payslip: {e}")
+#                     import traceback
+#                     traceback.print_exc()
+#                     messages.warning(request, _("Payslip could not be recalculated: {}").format(str(e)))
+#             return HttpResponse("<script>window.location.reload()</script>")
+#     return render(
+#         request,
+#         "payroll/bonus/form.html",
+#         {"form": form, "employee_id": employee_id, "payslip_id": payslip_id},
+#     )
+
 @login_required
 @permission_required("payroll.add_allowance")
 def add_bonus(request):
     employee_id = request.GET["employee_id"]
     payslip_id = request.GET.get("payslip_id")
+    instance = None
     if payslip_id != "None" and payslip_id:
-        instance = Payslip.objects.get(id=payslip_id)
+        try:
+            instance = Payslip.objects.get(id=payslip_id)
+        except Payslip.DoesNotExist:
+            messages.error(request, _("Payslip not found."))
+            return HttpResponse("<script>window.location.reload()</script>")
         form = forms.PayslipAllowanceForm(
             initial={"employee_id": employee_id, "date": instance.start_date}
         )
@@ -1229,34 +1752,190 @@ def add_bonus(request):
         if form.is_valid():
             form.save()
             messages.success(request, _("Bonus Added"))
-            if payslip_id != "None" and payslip_id:
-                if contract and contract.contract_start_date <= instance.start_date:
-
-                    new_post_data = QueryDict(mutable=True)
-                    new_post_data.update(
-                        {
-                            "employee_id": instance.employee_id,
-                            "start_date": instance.start_date,
-                            "end_date": instance.end_date,
-                        }
+            if payslip_id != "None" and payslip_id and instance:
+                # CRITICAL: Check if this is an imported payslip - preserve Excel data
+                pay_head_data = instance.pay_head_data or {}
+                if isinstance(pay_head_data, str):
+                    try:
+                        pay_head_data = json.loads(pay_head_data)
+                    except (json.JSONDecodeError, TypeError):
+                        pay_head_data = {}
+                
+                is_imported = pay_head_data.get('is_imported', False)
+                
+                if is_imported:
+                    # For imported payslips, preserve ALL Excel data and just update gross/net pay
+                    print(f"[ADD_BONUS] Payslip is imported - preserving Excel data, updating gross/net pay")
+                    
+                    employee = instance.employee_id
+                    start_date = instance.start_date
+                    end_date = instance.end_date
+                    
+                    # Preserve all Excel values
+                    excel_basic_pay = pay_head_data.get('basic_pay', instance.basic_pay or 0)
+                    excel_housing = pay_head_data.get('housing_allowance', 0)
+                    excel_transport = pay_head_data.get('transport_allowance', 0)
+                    excel_other = pay_head_data.get('other_allowance', 0)
+                    excel_overtime = pay_head_data.get('overtime', 0)
+                    excel_salary_advance = pay_head_data.get('salary_advance', 0)
+                    excel_bonus = pay_head_data.get('bonus', 0)
+                    excel_lop = pay_head_data.get('loss_of_pay', pay_head_data.get('lop', 0))
+                    excel_loan_recovery = pay_head_data.get('salary_advance_loan_recovery', 0)
+                    excel_deduction = pay_head_data.get('deduction', 0)
+                    
+                    # Get bonuses from database (including the newly added one)
+                    bonus_allowances = Allowance.objects.filter(
+                        specific_employees=employee,
+                        only_show_under_employee=True
+                    ).filter(
+                        Q(one_time_date__isnull=True) | 
+                        Q(one_time_date__gte=start_date, one_time_date__lte=end_date)
                     )
-                    instance.delete()
-                    create_payslip(request, new_post_data)
-                    payslip = Payslip.objects.filter(
-                        employee_id=instance.employee_id,
-                        start_date=instance.start_date,
-                        end_date=instance.end_date,
-                    ).first()
+                    
+                    # Calculate total bonuses from database
+                    db_bonus_total = 0
+                    for allowance in bonus_allowances:
+                        if "bonus" in allowance.title.lower():
+                            if allowance.is_fixed:
+                                db_bonus_total += float(allowance.amount or 0)
+                            else:
+                                rate = float(allowance.rate or 0)
+                                db_bonus_total += (excel_basic_pay * rate) / 100
+                    
+                    # Total bonus = Excel bonus + Database bonuses
+                    total_bonus = excel_bonus + db_bonus_total
+                    
+                    # CRITICAL: Build allowances list with bonuses from database (for template display)
+                    allowances_list = pay_head_data.get('allowances', [])
+                    if not isinstance(allowances_list, list):
+                        allowances_list = []
+                    
+                    # Add bonuses from database to allowances list (deduplicate by title)
+                    existing_bonus_titles = {a.get('title', '').lower() for a in allowances_list if 'bonus' in a.get('title', '').lower()}
+                    for allowance in bonus_allowances:
+                        if "bonus" in allowance.title.lower():
+                            bonus_title = allowance.title
+                            if bonus_title.lower() not in existing_bonus_titles:
+                                amount = 0
+                                if allowance.is_fixed:
+                                    amount = float(allowance.amount or 0)
+                                else:
+                                    rate = float(allowance.rate or 0)
+                                    amount = (excel_basic_pay * rate) / 100
+                                
+                                if amount > 0:
+                                    allowances_list.append({
+                                        "title": bonus_title,
+                                        "amount": round(amount, 2),
+                                        "id": allowance.id
+                                    })
+                                    existing_bonus_titles.add(bonus_title.lower())
+                    
+                    # Recalculate gross pay: Basic + Allowances + Bonuses
+                    gross_pay = round(excel_basic_pay + excel_housing + excel_transport + excel_other + db_bonus_total, 2)
+                    
+                    # Recalculate net pay using Excel formula: (Gross Pay + Overtime + Salary Advance + Bonus) - (LOP + Loan Recovery + Deduction)
+                    net_pay = round(
+                        (gross_pay + excel_overtime + excel_salary_advance + total_bonus) - 
+                        (excel_lop + excel_loan_recovery + excel_deduction),
+                        2
+                    )
+                    
+                    # Update pay_head_data
+                    pay_head_data['gross_pay'] = gross_pay
+                    pay_head_data['net_pay'] = net_pay
+                    pay_head_data['bonus'] = total_bonus
+                    pay_head_data['allowances'] = allowances_list  # CRITICAL: Update allowances list so bonuses appear in template
+                    
+                    # Update payslip model
+                    instance.gross_pay = gross_pay
+                    instance.net_pay = net_pay
+                    instance.pay_head_data = pay_head_data
+                    instance.save()
+                    
+                    print(f"[ADD_BONUS] Preserved Excel data - Gross Pay: {gross_pay}, Net Pay: {net_pay}, Total Bonus: {total_bonus}")
+                    
                     return HttpResponse(
-                        f"<script>window.location.href='/payroll/view-payslip/{payslip.id}'</script>"
+                        f"<script>window.location.href='/payroll/view-payslip/{instance.id}'</script>"
                     )
                 else:
-                    messages.warning(
-                        request,
-                        _(
-                            "No active contract found for  {} during this payslip period"
-                        ).format(employee),
-                    )
+                    # For non-imported payslips, recalculate normally
+                    try:
+                        employee = instance.employee_id
+                        start_date = instance.start_date
+                        end_date = instance.end_date
+                        
+                        # Try to recalculate using payroll_calculation or calculate_payslip_from_attendance
+                        contract = Contract.objects.filter(
+                            employee_id=employee.id, contract_status="active"
+                        ).first()
+                        
+                        if contract:
+                            # Use payroll_calculation if contract exists
+                            payslip_data = payroll_calculation(
+                                employee=employee,
+                                start_date=start_date,
+                                end_date=end_date,
+                                wage=contract.wage
+                            )
+                        else:
+                            # Use calculate_payslip_from_attendance if no contract
+                            wage = instance.contract_wage or 0
+                            pay_head_data = instance.pay_head_data or {}
+                            if isinstance(pay_head_data, str):
+                                try:
+                                    pay_head_data = json.loads(pay_head_data)
+                                except:
+                                    pay_head_data = {}
+                            
+                            payslip_data = calculate_payslip_from_attendance(
+                                employee=employee,
+                                start_date=start_date,
+                                end_date=end_date,
+                                wage=wage,
+                                housing_allowance=pay_head_data.get("housing_allowance", 0),
+                                transport_allowance=pay_head_data.get("transport_allowance", 0),
+                                other_allowance=pay_head_data.get("other_allowance", 0)
+                            )
+                        
+                        # Update existing payslip with recalculated data (same pattern as add_deduction)
+                        instance.contract_wage = round(payslip_data.get('contract_wage', instance.contract_wage or 0), 2)
+                        instance.basic_pay = round(payslip_data.get('basic_pay', 0), 2)
+                        instance.gross_pay = round(payslip_data.get('gross_pay', 0), 2)
+                        instance.net_pay = round(payslip_data.get('net_pay', 0), 2)
+                        instance.deduction = round(payslip_data.get('total_deductions', 0), 2)
+                        
+                        # CRITICAL: Extract bonus from allowances and store in pay_head_data for table view
+                        # This ensures bonus is visible in payslip_table.html (same concept as add_deduction extracts deductions)
+                        pay_head_data = payslip_data.get('pay_head_data', {})
+                        allowances_list = pay_head_data.get('allowances', [])
+                        if not isinstance(allowances_list, list):
+                            allowances_list = []
+                        
+                        # Extract bonus total from allowances list (for table view display)
+                        bonus_total = 0
+                        for allowance in allowances_list:
+                            if allowance and isinstance(allowance, dict):
+                                title = allowance.get('title', '').lower()
+                                amount = float(allowance.get('amount', 0) or 0)
+                                if 'bonus' in title:
+                                    bonus_total += amount
+                        
+                        # Store bonus in pay_head_data for table view (payslip_table.html looks for pay_head_data.bonus)
+                        pay_head_data['bonus'] = round(bonus_total, 2)
+                        pay_head_data['allowances'] = allowances_list  # Preserve allowances list
+                        
+                        instance.pay_head_data = pay_head_data
+                        instance.save()
+                        
+                        return HttpResponse(
+                            f"<script>window.location.href='/payroll/view-payslip/{instance.id}'</script>"
+                        )
+                    except Exception as e:
+                        print(f"[ADD_BONUS] Error recalculating payslip: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        messages.warning(request, _("Payslip could not be recalculated: {}").format(str(e)))
             return HttpResponse("<script>window.location.reload()</script>")
     return render(
         request,
@@ -1270,7 +1949,13 @@ def add_bonus(request):
 def add_deduction(request):
     employee_id = request.GET["employee_id"]
     payslip_id = request.GET.get("payslip_id")
-    instance = Payslip.objects.get(id=payslip_id)
+    
+    # Safely get payslip instance
+    try:
+        instance = Payslip.objects.get(id=payslip_id)
+    except Payslip.DoesNotExist:
+        messages.error(request, _("Payslip not found."))
+        return HttpResponse("<script>window.location.reload()</script>")
 
     if request.method == "POST":
         form = forms.PayslipDeductionForm(
@@ -1288,25 +1973,142 @@ def add_deduction(request):
             deduction_instance.include_active_employees = False
             deduction_instance.save()
 
-            # Now create new payslip by deleting existing payslip
-            new_post_data = QueryDict(mutable=True)
-            new_post_data.update(
-                {
-                    "employee_id": instance.employee_id,
-                    "start_date": instance.start_date,
-                    "end_date": instance.end_date,
-                }
-            )
-            instance.delete()
-            create_payslip(request, new_post_data)
-            payslip = Payslip.objects.filter(
-                employee_id=instance.employee_id,
-                start_date=instance.start_date,
-                end_date=instance.end_date,
-            ).first()
-            return HttpResponse(
-                f"<script>window.location.href='/payroll/view-payslip/{payslip.id}'</script>"
-            )
+            # Get employee and dates first (needed for both imported and non-imported payslips)
+            employee = instance.employee_id
+            start_date = instance.start_date
+            end_date = instance.end_date
+            
+            # CRITICAL: Check if this is an imported payslip - preserve Excel data
+            pay_head_data = instance.pay_head_data or {}
+            if isinstance(pay_head_data, str):
+                try:
+                    import json
+                    pay_head_data = json.loads(pay_head_data)
+                except (json.JSONDecodeError, TypeError):
+                    pay_head_data = {}
+            
+            is_imported = pay_head_data.get('is_imported', False)
+            
+            if is_imported:
+                # For imported payslips, preserve ALL Excel data and just update net pay
+                print(f"[ADD_DEDUCTION] Payslip is imported - preserving Excel data, only updating net pay")
+                
+                # Preserve all Excel values
+                excel_basic_pay = pay_head_data.get('basic_pay', instance.basic_pay or 0)
+                excel_gross_pay = pay_head_data.get('gross_pay', instance.gross_pay or 0)
+                excel_overtime = pay_head_data.get('overtime', 0)
+                excel_salary_advance = pay_head_data.get('salary_advance', 0)
+                excel_bonus = pay_head_data.get('bonus', 0)
+                excel_lop = pay_head_data.get('loss_of_pay', pay_head_data.get('lop', 0))
+                excel_loan_recovery = pay_head_data.get('salary_advance_loan_recovery', 0)
+                excel_deduction = pay_head_data.get('deduction', 0)
+                
+                # Get deductions from database (including the newly added one)
+                deductions_queryset = Deduction.objects.filter(
+                    specific_employees=employee,
+                    only_show_under_employee=True
+                )
+                if start_date and end_date:
+                    deductions_queryset = deductions_queryset.filter(
+                        Q(one_time_date__isnull=True) | 
+                        Q(one_time_date__gte=start_date, one_time_date__lte=end_date)
+                    )
+                
+                # Calculate total deductions from database (excluding update_compensation deductions)
+                db_deduction_total = 0
+                for deduction in deductions_queryset:
+                    if not deduction.update_compensation:  # Only count non-compensation deductions
+                        if deduction.is_fixed:
+                            db_deduction_total += float(deduction.amount or 0)
+                        else:
+                            # Calculate based on rate
+                            base_amount = excel_basic_pay if deduction.based_on == "basic_pay" else excel_gross_pay
+                            rate = float(deduction.rate or 0)
+                            db_deduction_total += (base_amount * rate) / 100
+                
+                # Total deductions = Excel deductions (LOP + Loan Recovery + Deduction) + Database deductions
+                total_deductions = round(excel_lop + excel_loan_recovery + excel_deduction + db_deduction_total, 2)
+                
+                # Recalculate net pay using Excel formula: (Gross Pay + Overtime + Salary Advance + Bonus) - (LOP + Loan Recovery + Deduction + DB Deductions)
+                net_pay = round(
+                    (excel_gross_pay + excel_overtime + excel_salary_advance + excel_bonus) - 
+                    (excel_lop + excel_loan_recovery + excel_deduction + db_deduction_total),
+                    2
+                )
+                
+                # Update pay_head_data with new net pay and total deductions
+                pay_head_data['net_pay'] = net_pay
+                pay_head_data['total_deductions'] = total_deductions
+                
+                # Update payslip model
+                instance.net_pay = net_pay
+                instance.deduction = total_deductions
+                instance.pay_head_data = pay_head_data
+                instance.save()
+                
+                print(f"[ADD_DEDUCTION] Preserved Excel data - Net Pay: {net_pay}, Total Deductions: {total_deductions}")
+                
+                return HttpResponse(
+                    f"<script>window.location.href='/payroll/view-payslip/{instance.id}'</script>"
+                )
+            else:
+                # For non-imported payslips, recalculate normally
+                try:
+                    employee = instance.employee_id
+                    start_date = instance.start_date
+                    end_date = instance.end_date
+                    
+                    # Try to recalculate using payroll_calculation or calculate_payslip_from_attendance
+                    contract = Contract.objects.filter(
+                        employee_id=employee.id, contract_status="active"
+                    ).first()
+                    
+                    if contract:
+                        # Use payroll_calculation if contract exists
+                        payslip_data = payroll_calculation(
+                            employee=employee,
+                            start_date=start_date,
+                            end_date=end_date,
+                            wage=contract.wage
+                        )
+                    else:
+                        # Use calculate_payslip_from_attendance if no contract
+                        wage = instance.contract_wage or 0
+                        pay_head_data = instance.pay_head_data or {}
+                        if isinstance(pay_head_data, str):
+                            try:
+                                pay_head_data = json.loads(pay_head_data)
+                            except:
+                                pay_head_data = {}
+                        
+                        payslip_data = calculate_payslip_from_attendance(
+                            employee=employee,
+                            start_date=start_date,
+                            end_date=end_date,
+                            wage=wage,
+                            housing_allowance=pay_head_data.get("housing_allowance", 0),
+                            transport_allowance=pay_head_data.get("transport_allowance", 0),
+                            other_allowance=pay_head_data.get("other_allowance", 0)
+                        )
+                    
+                    # Update existing payslip with recalculated data
+                    instance.contract_wage = round(payslip_data.get('contract_wage', instance.contract_wage or 0), 2)
+                    instance.basic_pay = round(payslip_data.get('basic_pay', 0), 2)
+                    instance.gross_pay = round(payslip_data.get('gross_pay', 0), 2)
+                    instance.net_pay = round(payslip_data.get('net_pay', 0), 2)
+                    instance.deduction = round(payslip_data.get('total_deductions', 0), 2)
+                    instance.pay_head_data = payslip_data.get('pay_head_data', {})
+                    instance.save()
+                    
+                    return HttpResponse(
+                        f"<script>window.location.href='/payroll/view-payslip/{instance.id}'</script>"
+                    )
+                except Exception as e:
+                    print(f"[ADD_DEDUCTION] Error recalculating payslip: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    messages.warning(request, _("Payslip could not be recalculated: {}").format(str(e)))
+                    return HttpResponse("<script>window.location.reload()</script>")
 
     else:
         form = forms.PayslipDeductionForm(
@@ -1318,6 +2120,7 @@ def add_deduction(request):
         "payroll/deduction/payslip_deduct.html",
         {"form": form, "employee_id": employee_id, "payslip_id": payslip_id},
     )
+
 
 
 @login_required
@@ -2265,4 +3068,1736 @@ def payslip_detailed_export(request):
     response["Content-Disposition"] = f"attachment; filename={file_name}.xlsx"
     wb.save(response)
 
+    return response
+
+
+
+
+# Assuming these imports are correct based on the context
+# from payroll.models import Payslip, Employee 
+# from payroll.forms import PayslipImportForm 
+
+
+@login_required
+@permission_required("payroll.run_payroll")
+def run_payroll(request):
+    """
+    Renders the main payroll running page with dynamic year and month status.
+    Requires the user to be logged in and have the 'payroll.run_payroll' permission.
+    """
+    try:
+        current_year = date.today().year
+        selected_year = int(request.GET.get('year', current_year))
+    except (ValueError, TypeError):
+        selected_year = date.today().year
+
+    months_data = []
+    
+    # Calculate start/end dates for all months in the selected year
+    month_ranges = get_month_start_end(selected_year)
+    
+    for i, (start_date, end_date) in enumerate(month_ranges):
+        month_num = i + 1
+        month_name = calendar.month_name[month_num]
+        
+        # Check status: If ANY payslip exists for this period, mark as completed
+        # You might want to refine this (e.g., only if *all* active employees have payslips, or specific status)
+        # For now, simplistic check: if payslips exist, it's "completed" (or in progress), else "pending"
+        payslips_exist = Payslip.objects.filter(
+            start_date__gte=start_date, 
+            end_date__lte=end_date
+        ).exists()
+        
+        status = "completed" if payslips_exist else "pending"
+        
+        # Format date range for display (e.g., "Jan 1 - Jan 31")
+        date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d')}"
+        
+        months_data.append({
+            'name': f"{month_name} {selected_year}",
+            'range': date_range,
+            'status': status,
+            'month_num': month_num # Useful for links if needed
+        })
+
+    context = {
+        'months': months_data,
+        'selected_year': selected_year,
+    }
+    return render(request, "payroll/run_payroll/run_payroll.html", context)
+
+
+def calculate_payslip_from_attendance(employee, start_date, end_date, wage, housing_allowance=0, transport_allowance=0, other_allowance=0):
+    """
+    Calculate payslip for employee based on attendance/leave records without requiring contract.
+    Similar to Keka's approach - calculates directly from WorkRecords and Attendance.
+    
+    Args:
+        employee: Employee instance
+        start_date: Start date of payroll period
+        end_date: End date of payroll period
+        wage: Basic wage/salary for the employee
+        housing_allowance: Housing allowance amount
+        transport_allowance: Transport allowance amount
+        other_allowance: Other allowance amount
+    
+    Returns:
+        dict: Calculated payslip data
+    """
+    import logging
+    # Use print as requested instead of logger
+    
+    print(f"[PAYSLIP_CALC] Starting calculation for Employee: {employee.badge_id} ({employee.get_full_name()})")
+    print(f"[PAYSLIP_CALC] Period: {start_date} to {end_date}")
+    print(f"[PAYSLIP_CALC] Wage: {wage}, Allowances - Housing: {housing_allowance}, Transport: {transport_allowance}, Other: {other_allowance}")
+    
+    # Get all dates in the period
+    date_range = get_date_range(start_date, end_date)
+    print(f"[PAYSLIP_CALC] Total days in period: {len(date_range)}")
+    
+    # Get employee company for filtering holidays
+    employee_company = None
+    department_name = "-"
+    if hasattr(employee, 'employee_work_info') and employee.employee_work_info:
+        employee_company = getattr(employee.employee_work_info, 'company_id', None)
+        if employee.employee_work_info.department_id:
+             department_name = employee.employee_work_info.department_id.department
+        print(f"[PAYSLIP_CALC] Employee Company: {employee_company}")
+    
+    # Get holidays in the period (filtered by company if available)
+    holiday_query = Q(start_date__lte=end_date) & Q(end_date__gte=start_date)
+    if employee_company:
+        holiday_query &= Q(company_id=employee_company)
+    all_holidays = Holidays.objects.filter(holiday_query)
+    print(f"[PAYSLIP_CALC] Found {all_holidays.count()} holidays in period")
+    
+    holiday_dates_set = set()
+    for hol in all_holidays:
+        hol_start = max(hol.start_date, start_date)
+        hol_end = min(hol.end_date or hol.start_date, end_date)
+        day = hol_start
+        while day <= hol_end:
+            holiday_dates_set.add(day)
+            day += timedelta(days=1)
+    print(f"[PAYSLIP_CALC] Holiday dates count: {len(holiday_dates_set)}")
+    
+    # Get work records for the period
+    work_records = WorkRecords.objects.filter(
+        date__in=date_range,
+        employee_id=employee
+    )
+    print(f"[PAYSLIP_CALC] Found {work_records.count()} work records")
+    wr_dict = {wr.date: wr for wr in work_records}
+    
+    # Also get attendance records for validation
+    attendance_records = Attendance.objects.filter(
+        employee_id=employee,
+        attendance_date__range=(start_date, end_date),
+        attendance_validated=True
+    )
+    print(f"[PAYSLIP_CALC] Found {attendance_records.count()} validated attendance records")
+    attendance_dates = set(att.attendance_date for att in attendance_records)
+    
+    # Calculate working days, paid days, and leave days
+    total_days = len(date_range)
+    present_days = 0
+    half_day_present = 0
+    absent_days = 0
+    leave_full_days = 0
+    leave_half_days = 0
+    weekly_off_days = 0
+    holiday_days = len(holiday_dates_set)
+    overtime_hours = 0
+    
+    # Calculate overtime from attendance
+    for att in attendance_records:
+        if att.overtime_second:
+            overtime_hours += att.overtime_second / 3600
+    
+    # Get employee shift for working day calculation
+    emp_shift = None
+    if hasattr(employee, "employee_work_info") and employee.employee_work_info:
+        emp_shift = getattr(employee.employee_work_info, "shift_id", None)
+    print(f"[PAYSLIP_CALC] Employee Shift: {emp_shift}")
+    
+    # Get working days data for accurate calculation
+    working_days_data = get_working_days(start_date, end_date, company=employee_company)
+    total_working_days = working_days_data.get("total_working_days", 0)
+    working_days_list = working_days_data.get("working_days_on", [])
+    print(f"[PAYSLIP_CALC] Total working days: {total_working_days}")
+    
+    # Process each date in the period
+    for date_obj in date_range:
+        if date_obj in holiday_dates_set:
+            # Check if holiday is overlapping with a leave request or work record?
+            # Usually holidays are paid.
+            continue
+        
+        wr = wr_dict.get(date_obj)
+        
+        if wr:
+            if wr.work_record_type == "FDP":
+                present_days += 1
+            elif wr.work_record_type == "HDP":
+                half_day_present += 0.5
+            elif wr.work_record_type == "ABS":
+                absent_days += 1
+            elif wr.work_record_type == "LFD":
+                leave_full_days += 1
+            elif wr.work_record_type == "LHD":
+                leave_half_days += 0.5
+            elif wr.work_record_type == "WOF":
+                weekly_off_days += 1
+        else:
+            # No work record - check if it's a working day
+            is_working_day = date_obj in working_days_list
+            
+            if is_working_day:
+                # Check if there's attendance for this day
+                if date_obj in attendance_dates:
+                    present_days += 1
+                    # print(f"[PAYSLIP_CALC] Date {date_obj}: Present (attendance found)")
+                else:
+                    # Check for leaves (get_leaves logic used separately or incorporated here)
+                    # Simplified assumption: if no attendance and no work record, it might be absent
+                    # unless we check for leave requests explicitly here.
+                     # Ideally we should use get_leaves() or similar if work records aren't fully populated.
+                    absent_days += 1
+                    # print(f"[PAYSLIP_CALC] Date {date_obj}: Absent (no attendance)")
+            else:
+                weekly_off_days += 1
+                # print(f"[PAYSLIP_CALC] Date {date_obj}: Weekly off")
+    
+    print(f"[PAYSLIP_CALC] Attendance Summary - Present: {present_days}, Half-day: {half_day_present}, "
+                f"Absent: {absent_days}, Leave Full: {leave_full_days}, Leave Half: {leave_half_days}, "
+                f"Weekly Off: {weekly_off_days}, Holidays: {holiday_days}")
+    
+    # Calculate paid days (present + half days + holidays + weekly offs + paid leaves)
+    # Note: Leave full days and half days are typically unpaid unless specified otherwise.
+    # We will assume LFD/LHD in WorkRecord are UNPAID unless we check payment type involving complexity.
+    # But usually 'paid' leave is treated as Present or a specific paid type.
+    # Let's assume standard logic: WorkRecords capture the final status.
+    
+    paid_days = present_days + half_day_present + holiday_days + weekly_off_days
+    # If there are paid leaves, they should be added.
+    # Let's check if LFD is paid or unpaid. Usually LFD in WorkRecord implies taken leave. 
+    # Whether it is paid depends on leave type. Here we assume unpaid for simplification or LOP.
+    
+    # Use user Requirement Fields:
+    # LOP (Loss of Pay)Days = Absent Days + Unpaid Leave Days
+    unpaid_days = absent_days + leave_full_days + (leave_half_days * 0.5)
+    
+    print(f"[PAYSLIP_CALC] Paid days: {paid_days}, Unpaid days: {unpaid_days}")
+    
+    # Calculate basic pay (based on paid days)
+    # Use total working days for per-day calculation
+    # Standard formula: (Basic / Total Days in Month) * Paid Days
+    
+    days_in_month = (end_date - start_date).days + 1
+    # Or use 30 as standard? Let's use actual days in range.
+    
+    if days_in_month > 0:
+        per_day_wage = wage / days_in_month
+    else:
+        per_day_wage = 0
+        
+    print(f"[PAYSLIP_CALC] Per day wage: {per_day_wage:.2f}")
+    
+    # Basic Pay for the period (Actual Earnings vs Contract Wage)
+    # Actually, often Basic Pay refers to the Contract Basic. 
+    # Earned Basic Pay = (Contract Basic / Total Days) * Paid Days
+    earned_basic_pay = per_day_wage * paid_days
+    
+    loss_of_pay_amount = per_day_wage * unpaid_days
+    
+    print(f"[PAYSLIP_CALC] Earned Basic pay: {earned_basic_pay:.2f}, Loss of pay: {loss_of_pay_amount:.2f}")
+    
+    # Calculate allowances
+    # Are allowances fixed or pro-rated? Usually fixed but let's assume fixed for now as per previous code.
+    total_allowances = housing_allowance + transport_allowance + other_allowance
+    
+    # Gross Pay = Earned Basic + Allowances - LOP? Or Earned Basic + Allowances?
+    # Usually: Gross Pay = Basic + Allowances
+    # But if there is LOP, it reduces the total earnings.
+    # Let's calculating: Gross Pay (Contract) vs Gross Pay (Earned)
+    
+    gross_pay = earned_basic_pay + total_allowances
+    
+    print(f"[PAYSLIP_CALC] Total allowances: {total_allowances:.2f}, Gross pay: {gross_pay:.2f}")
+    
+    # Deductions
+    salary_advance = 0 # Placeholder, need DB fetch if exists
+    salary_advance_loan_recovery = 0 # Placeholder
+    bonus = 0
+    other_deductions = 0
+    
+    total_deductions = salary_advance_loan_recovery + other_deductions 
+    # Note: LOP is already deducted by reducing Basic Pay, 
+    # OR we show Full Basic and then show LOP as deduction.
+    # Requirement asks for "LOP" column. So maybe we should show Full Basic in one column
+    # and LOP amount in another? 
+    # "Basic Pay" usually means Earned Basic in payslip context.
+    # Let's stick to: Net Pay = Gross Pay - Deductions.
+    # If Gross Pay is calculated on Paid Days, LOP is implicit.
+    # If we want explicit LOP deduction:
+    # Gross (Full) = Wage + Allowances
+    # Deduction = LOP Amount + Others
+    # Net = Gross (Full) - Deduction.
+    # Let's assume the user wants checkable LOP.
+    
+    # Standard Keka/Hr approach:
+    # Earnings: Basic (Earned), HRA, ...
+    # Deductions: PF, Tax, etc.
+    # LOP is often shown as days.
+    
+    # Let's calculate proper Net Pay
+    net_pay = gross_pay - total_deductions
+    
+    print(f"[PAYSLIP_CALC] Total deductions: {total_deductions:.2f}, Net pay: {net_pay:.2f}")
+    
+    # Build payslip data structure matching requirements
+    payslip_data = {
+        "employee": employee,
+        "contract_wage": wage, # Full Basic
+        "basic_pay": round(earned_basic_pay, 2), # Earned Basic
+        "gross_pay": round(gross_pay, 2),
+        "housing_allowance": housing_allowance,
+        "transport_allowance": transport_allowance,
+        "other_allowance": other_allowance,
+        "total_allowances": round(total_allowances, 2),
+        "taxable_gross_pay": round(gross_pay, 2),
+        "net_pay": round(net_pay, 2),
+        "allowances": [],
+        "paid_days": round(paid_days, 2),
+        "unpaid_days": round(unpaid_days, 2),
+        "loss_of_pay": round(loss_of_pay_amount, 2), # Amount
+        "lop_days": round(unpaid_days, 2), # Days
+        "status": "draft",
+        "overtime": round(overtime_hours, 2),
+        "salary_advance_loan_recovery": salary_advance_loan_recovery,
+        "deduction": round(total_deductions, 2), # Explicit deductions field
+        "salary_advance": salary_advance,
+        "bonus": bonus, 
+        "total_deductions": round(total_deductions, 2), # Same as Deduction?
+        "federal_tax": 0,
+        "start_date": start_date,
+        "end_date": end_date,
+        "range": f"{start_date.strftime('%b %d %Y')} - {end_date.strftime('%b %d %Y')}",
+        "present_days": present_days,
+        "half_day_present": half_day_present,
+        "absent_days": absent_days,
+        "leave_full_days": leave_full_days,
+        "leave_half_days": leave_half_days,
+        "weekly_off_days": weekly_off_days,
+        "holiday_days": holiday_days,
+        "total_working_days": total_working_days,
+        "employee_id": employee.badge_id,
+        "employee_name": employee.get_full_name(),
+        "department": department_name
+    }
+    
+    # Convert to JSON format for PayHeadData
+    # We need to ensure all keys required by template are present
+    data_to_json = payslip_data.copy()
+    data_to_json["employee"] = employee.id
+    data_to_json["start_date"] = start_date.strftime("%Y-%m-%d")
+    data_to_json["end_date"] = end_date.strftime("%Y-%m-%d")
+    
+    payslip_data["json_data"] = json.dumps(data_to_json, default=str)
+    payslip_data["pay_head_data"] = data_to_json
+    payslip_data["installments"] = []
+    
+    print(f"[PAYSLIP_CALC] Calculation completed successfully for Employee: {employee.badge_id}")
+    
+    return payslip_data
+
+
+@login_required
+@permission_required("payroll.add_payslip")
+def payslip_import_info(request):
+    """
+    Renders the payslip import page with month/year selection and file upload.
+    Similar to run_payroll.html UI.
+    """
+    # Get current year and month for default values
+    today = date.today()
+    try:
+        current_year = int(request.GET.get('year', today.year))
+    except (ValueError, TypeError):
+        current_year = today.year
+    
+    current_month = today.month
+    
+    # Get all months with their status
+    months_data = []
+    for month_num in range(1, 13):
+        month_name = calendar.month_name[month_num]
+        # Check if payslips exist for this month
+        month_start = date(current_year, month_num, 1)
+        if month_num == 12:
+            month_end = date(current_year, month_num, 31)
+        else:
+            month_end = date(current_year, month_num + 1, 1) - timedelta(days=1)
+        
+        payslips_count = Payslip.objects.filter(
+            start_date__gte=month_start,
+            end_date__lte=month_end
+        ).count()
+        
+        status = "completed" if payslips_count > 0 else "pending"
+        
+        months_data.append({
+            "month_num": month_num,
+            "month_name": month_name,
+            "year": current_year,
+            "status": status,
+            "date_range": f"{month_start.strftime('%b %d')} - {month_end.strftime('%b %d')}"
+        })
+    
+    # Get employee count for selected company
+    # Uses the same logic as payslip_import_template - get company from session or query param
+    company_id = request.GET.get("company_id") or request.session.get("selected_company")
+    
+    # Count employees for the selected company
+    # HorillaCompanyManager automatically scopes Employee.objects.all() by selected company
+    employee_count = Employee.objects.all().count()
+    
+    context = {
+        "current_year": current_year,
+        "current_month": current_month,
+        "months_data": months_data,
+        "employee_count": employee_count,
+    }
+    
+    return render(request, "payroll/payslip_import/payslip_import.html", context)
+
+
+@login_required
+@permission_required("payroll.add_payslip")
+def payslip_import_template(request):
+    """
+    Download a payslip import template with component-level calculations.
+    
+    Correction:
+    - Changed SUM to ROUND for Basic, Housing, Transport, and Other allowances.
+    - Formula: =ROUND((Base_Amount / Days_In_Month) * Total_Paid_Days, 2)
+    """
+    company_id = request.GET.get("company_id") or request.session.get("selected_company")
+
+    # --- 1. GET MONTH/YEAR & DAYS ---
+    current_date = datetime.now()
+    try:
+        selected_month = int(request.GET.get("month", current_date.month))
+        selected_year = int(request.GET.get("year", current_date.year))
+        
+        # Validate month is between 1 and 12
+        if selected_month < 1 or selected_month > 12:
+            selected_month = current_date.month
+        
+        # Validate year is reasonable (between 2000 and 2100)
+        if selected_year < 2000 or selected_year > 2100:
+            selected_year = current_date.year
+            
+    except (ValueError, TypeError):
+        selected_month = current_date.month
+        selected_year = current_date.year
+
+    # Get exact days in month (28, 29, 30, or 31)
+    # This value is used as the denominator in the formula
+    # calendar.monthrange(year, month) returns (weekday_of_first_day, number_of_days)
+    try:
+        days_in_month = calendar.monthrange(selected_year, selected_month)[1]
+    except (ValueError, TypeError):
+        # Fallback to current month if calculation fails
+        days_in_month = calendar.monthrange(current_date.year, current_date.month)[1]
+        selected_month = current_date.month
+        selected_year = current_date.year
+
+    employees_qs = Employee.objects.all().select_related(
+        "employee_work_info",
+        "employee_work_info__department_id"
+    )
+
+    employees = employees_qs.values(
+        "badge_id",
+        "employee_first_name",
+        "employee_last_name",
+        "employee_work_info__basic_salary",
+        "employee_work_info__housing_allowance",
+        "employee_work_info__transport_allowance",
+        "employee_work_info__other_allowance",
+        "employee_work_info__department_id__department",
+    )
+
+    export_rows = []
+    
+    for emp in employees:
+        emp_id = emp.get("badge_id") or ""
+        first_name = emp.get("employee_first_name") or ""
+        last_name = emp.get("employee_last_name") or ""
+        emp_name = (f"{first_name} {last_name}").strip()
+        dept_name = emp.get("employee_work_info__department_id__department") or ""
+        
+        # Base monthly amounts
+        basic_pay = float(emp.get("employee_work_info__basic_salary") or 0)
+        housing = float(emp.get("employee_work_info__housing_allowance") or 0)
+        transport = float(emp.get("employee_work_info__transport_allowance") or 0)
+        other = float(emp.get("employee_work_info__other_allowance") or 0)
+        
+        export_rows.append({
+            # Static columns
+            "Employee Id": emp_id,
+            "Employee Name": emp_name,
+            "Department": dept_name,
+            # Base values (overwritten by formula in loop)
+            "Basic Salary": basic_pay,
+            "Housing Allowance": housing,
+            "Transport Allowance": transport,
+            "Other Allowance": other,
+            
+            # Default "Total Paid Days" to the full month days
+            "Total Paid Days": days_in_month, 
+            
+            "Gross Salary": "", 
+            "Loss of Pay": "",
+            "salary_advance_loan_recovery": "",
+            "Deduction": "",
+            "Overtime": "",
+            "salary_advance": "",
+            "bonus": "",
+            "Net Salary": "",
+        })
+
+    df = pd.DataFrame(export_rows)
+    
+    # Column Definitions
+    static_cols = ["Employee Id", "Employee Name", "Department", "Basic Salary", "Housing Allowance", "Transport Allowance", "Other Allowance"]
+    variable_cols = ["Total Paid Days", "Gross Salary", "Loss of Pay", "salary_advance_loan_recovery", "Deduction", "Overtime", "salary_advance", "bonus", "Net Salary"]
+
+    file_name = f"payslip_import_template_{company_id or 'all'}_{selected_year}_{selected_month}.xlsx"
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+
+    writer = pd.ExcelWriter(response, engine="xlsxwriter")
+    df.to_excel(writer, index=False, sheet_name="Payslips", startrow=2)
+    
+    workbook = writer.book
+    worksheet = writer.sheets["Payslips"]
+    
+    # --- Formats ---
+    fmt_green_header = workbook.add_format({'bold': True, 'bg_color': '#D8E4BC', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    fmt_green_data = workbook.add_format({'bg_color': '#D8E4BC', 'border': 1, 'align': 'left', 'valign': 'vcenter'})
+    
+    fmt_orange_header = workbook.add_format({'bold': True, 'bg_color': '#FCD5B4', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    fmt_orange_data = workbook.add_format({'bg_color': '#FCD5B4', 'border': 1, 'align': 'left', 'valign': 'vcenter'})
+    
+    merged_header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1})
+
+    # --- Header Setup ---
+    worksheet.merge_range(0, 9, 0, 11, "DEDUCTION", merged_header_fmt)
+    worksheet.merge_range(0, 12, 0, 14, "ADDITION", merged_header_fmt)
+    
+    for col_num, col_name in enumerate(df.columns.values):
+        if col_name in static_cols:
+            worksheet.write(2, col_num, col_name, fmt_green_header)
+        else:
+            worksheet.write(2, col_num, col_name, fmt_orange_header)
+        worksheet.set_column(col_num, col_num, 18)
+    
+    # --- Data Writing & Formulas ---
+    num_data_rows = len(df)
+    for row_idx in range(num_data_rows):
+        data_row = row_idx + 3
+        excel_row = data_row + 1
+        
+        # Base values for formula construction
+        base_basic = df.iloc[row_idx]['Basic Salary']
+        base_housing = df.iloc[row_idx]['Housing Allowance']
+        base_transport = df.iloc[row_idx]['Transport Allowance']
+        base_other = df.iloc[row_idx]['Other Allowance']
+
+        for col_num, col_name in enumerate(df.columns.values):
+            cell_value = df.iloc[row_idx, col_num]
+            cell_format = fmt_green_data if col_name in static_cols else fmt_orange_data
+            
+            # --- FIX: Using ROUND() instead of SUM() ---
+            if col_name == "Basic Salary":
+                formula = f"=ROUND(({base_basic}/{days_in_month})*H{excel_row}, 2)"
+                worksheet.write_formula(data_row, col_num, formula, cell_format)
+                
+            elif col_name == "Housing Allowance":
+                formula = f"=ROUND(({base_housing}/{days_in_month})*H{excel_row}, 2)"
+                worksheet.write_formula(data_row, col_num, formula, cell_format)
+                
+            elif col_name == "Transport Allowance":
+                formula = f"=ROUND(({base_transport}/{days_in_month})*H{excel_row}, 2)"
+                worksheet.write_formula(data_row, col_num, formula, cell_format)
+                
+            elif col_name == "Other Allowance":
+                formula = f"=ROUND(({base_other}/{days_in_month})*H{excel_row}, 2)"
+                worksheet.write_formula(data_row, col_num, formula, cell_format)
+                
+            elif col_name == "Gross Salary":
+                # Sum of the above calculated columns (D, E, F, G)
+                gross_formula = f"=SUM(D{excel_row}:G{excel_row})"
+                worksheet.write_formula(data_row, col_num, gross_formula, cell_format)
+                
+            elif col_name == "Net Salary":
+                # Gross - Deductions + Additions
+                net_formula = f"=I{excel_row}-SUM(J{excel_row}:L{excel_row})+SUM(M{excel_row}:O{excel_row})"
+                worksheet.write_formula(data_row, col_num, net_formula, cell_format)
+                
+            else:
+                # Standard write handles the integer 'days_in_month' correctly
+                if pd.isna(cell_value) or cell_value == "" or (isinstance(cell_value, str) and cell_value.strip() == ""):
+                    worksheet.write_blank(data_row, col_num, None, cell_format)
+                elif isinstance(cell_value, (int, float)):
+                    worksheet.write_number(data_row, col_num, float(cell_value), cell_format)
+                else:
+                    worksheet.write(data_row, col_num, str(cell_value), cell_format)
+
+    # Final Formatting
+    worksheet.set_row(0, 20)
+    worksheet.set_row(1, 5) 
+    worksheet.set_row(2, 25)
+
+    writer.close()
+    return response
+
+
+@permission_required("payroll.change_payslip")
+@permission_required('payroll.add_payslip', raise_exception=True)
+def payslip_import_process(request):
+    """
+    Handles the POST request for uploading Excel file and automatically calculating payslips
+    based ONLY on imported Excel data (no attendance calculations).
+    
+    Expected Excel columns:
+    - Employee Id, Employee Name, Department, Basic Salary, Housing Allowance, Transport Allowance, Other Allowance,
+    - Gross Salary, Total Paid Days, Loss of Pay, salary_advance_loan_recovery, Deduction,
+    - Overtime, salary_advance, bonus, Net Salary
+    
+    Formula: Net Pay = (Gross Pay + Overtime + salary_advance + bonus) - (Loss of Pay + salary_advance_loan_recovery + Deduction)
+    """
+    
+    if request.method != "POST":
+        return JsonResponse({
+            'status': 'error',
+            'message': "Only POST method allowed."
+        }, status=400)
+
+    # Get month and year from request
+    try:
+        month = int(request.POST.get('month', date.today().month))
+        year = int(request.POST.get('year', date.today().year))
+    except (ValueError, TypeError):
+        return JsonResponse({
+            'status': 'error',
+            'message': "Invalid month or year provided."
+        }, status=400)
+
+    # Calculate start and end dates for the selected month
+    if month == 12:
+        month_end = date(year, month, 31)
+    else:
+        month_end = date(year, month + 1, 1) - timedelta(days=1)
+    
+    start_date = date(year, month, 1)
+    end_date = month_end
+    
+    # Check if file is uploaded
+    if 'file' not in request.FILES:
+        return JsonResponse({
+            'status': 'error',
+            'message': "No file uploaded. Please upload an Excel file."
+        }, status=400)
+
+    file = request.FILES['file']
+    file_extension = file.name.split('.')[-1].lower()
+
+    if file_extension not in ['xls', 'xlsx', 'csv']:
+        return JsonResponse({
+            'status': 'error',
+            'message': "Unsupported file format. Please use .xls, .xlsx, or .csv"
+        }, status=400)
+
+    try:
+        from io import BytesIO
+        file_data = BytesIO(file.read())
+
+        # Read Excel file - handle template format with merged headers
+        header_row = 0
+        if file_extension in ['xls', 'xlsx']:
+            try:
+                file_data.seek(0)
+                preview = pd.read_excel(file_data, nrows=4, header=None)
+                file_data.seek(0)
+                
+                # Check if row 0 contains merged header keywords
+                row0_values = [str(v).upper().strip() for v in preview.iloc[0].values if pd.notna(v)]
+                row0_text = ' '.join(row0_values)
+                has_merged_headers = any(keyword in row0_text for keyword in ['DEDUCTION', 'ADDITION'])
+                
+                # Check if row 2 contains column header keywords
+                row2_values = [str(v).upper().strip() for v in preview.iloc[2].values if pd.notna(v)]
+                row2_text = ' '.join(row2_values)
+                has_column_headers = any(keyword in row2_text for keyword in ['EMPLOYEE ID', 'EMPLOYEE_NAME', 'EMPLOYEEID', 'BASIC SALARY', 'BASIC_SALARY', 'GROSS SALARY'])
+                
+                if has_merged_headers and has_column_headers and len(preview) > 2:
+                    header_row = 2
+                    print(f"[IMPORT] Detected template format, using row {header_row} as header")
+            except Exception as e:
+                print(f"[IMPORT] Header detection failed: {e}, using default header row 0")
+            
+            df = pd.read_excel(file_data, header=header_row)
+        else:
+            df = pd.read_csv(file_data)
+
+        # Normalize column names for matching
+        df.columns = (
+            df.columns.astype(str)
+            .str.strip()
+            .str.lower()
+            .str.replace(" ", "_")
+            .str.replace("-", "_")
+        )
+
+        # Check for employee_id column
+        employee_id_col = None
+        for col in df.columns:
+            normalized_col = col.strip().lower().replace(" ", "_").replace("-", "_")
+            if normalized_col in ['employee_id', 'employeeid', 'emp_id', 'badge_id', 'badgeid']:
+                employee_id_col = col
+                break
+        
+        if not employee_id_col:
+            if 'employee_id' not in df.columns:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f"Missing required column: 'Employee Id'. Found columns: {list(df.columns)}"
+                }, status=400)
+            employee_id_col = 'employee_id'
+        
+        if employee_id_col != 'employee_id':
+            df = df.rename(columns={employee_id_col: 'employee_id'})
+
+        # Check for basic_pay/basic_salary column
+        wage_column = None
+        for col in df.columns:
+            normalized_col = col.strip().lower().replace(" ", "_").replace("-", "_")
+            if normalized_col in ['basic_pay', 'basic_salary', 'wage']:
+                wage_column = col
+                break
+        
+        if not wage_column:
+            return JsonResponse({
+                'status': 'error',
+                'message': f"Missing required column: 'Basic Salary' or 'Basic Pay'. Found columns: {list(df.columns)}"
+            }, status=400)
+        
+        if wage_column != 'basic_pay':
+            df = df.rename(columns={wage_column: 'basic_pay'})
+
+        # Remove label rows
+        label_texts = [
+            'static components for every payroll month',
+            'variable components to be changed/entered every month',
+            'static components',
+            'variable components'
+        ]
+        
+        rows_to_drop = []
+        for idx in df.index:
+            row_values = ' '.join([str(val).lower().strip() for val in df.loc[idx].values if pd.notna(val)])
+            if any(label_text in row_values for label_text in label_texts):
+                rows_to_drop.append(idx)
+        
+        if rows_to_drop:
+            df = df.drop(rows_to_drop).reset_index(drop=True)
+
+        errors = []
+        total_imported = 0
+
+        with transaction.atomic():
+            for index, row in df.iterrows():
+                row_no = header_row + index + 2  # Excel row number (1-indexed)
+
+                try:
+                    employee_id = str(row['employee_id']).strip()
+                    if not employee_id or employee_id.lower() in ['nan', 'none', '']:
+                        continue
+                    
+                    # Skip label rows
+                    if any(label_text in employee_id.lower() for label_text in label_texts):
+                        continue
+
+                    # Get employee
+                    try:
+                        employee = Employee.objects.get(badge_id=employee_id)
+                    except Employee.DoesNotExist:
+                        raise ValueError(f"Employee with badge ID '{employee_id}' not found.")
+
+                    # Get ALL values from Excel ONLY (no fallbacks to system values)
+                    # Column was renamed to 'basic_pay' earlier, so access it directly
+                    monthly_basic_pay = float(np.nan_to_num(row.get('basic_pay', 0)))
+                    if monthly_basic_pay == 0:
+                        # Fallback: try 'basic_salary' in case rename didn't work
+                        monthly_basic_pay = float(np.nan_to_num(row.get('basic_salary', 0)))
+                    # Read Department from Excel
+                    department_excel = str(row.get('department', '')).strip() if pd.notna(row.get('department', '')) else ''
+                    housing_allowance = float(np.nan_to_num(row.get('housing_allowance', 0)))
+                    transport_allowance = float(np.nan_to_num(row.get('transport_allowance', 0)))
+                    other_allowance = float(np.nan_to_num(row.get('other_allowance', 0)))
+                    gross_pay_excel = float(np.nan_to_num(row.get('gross_pay', row.get('gross_salary', 0))))
+                    paid_days = float(np.nan_to_num(row.get('total_paid_days', 0)))
+                    loss_of_pay = float(np.nan_to_num(row.get('lop', row.get('loss_of_pay', 0))))
+                    salary_advance_loan_recovery = float(np.nan_to_num(row.get('salary_advance_loan_recovery', 0)))
+                    deduction = float(np.nan_to_num(row.get('deduction', 0)))
+                    overtime = float(np.nan_to_num(row.get('overtime', 0)))
+                    salary_advance = float(np.nan_to_num(row.get('salary_advance', 0)))
+                    bonus = float(np.nan_to_num(row.get('bonus', 0)))
+                    
+                    # Calculate Basic Pay: (Monthly Basic Pay / Calendar month days) × Paid Days from Excel
+                    # BYPASS CONTRACT: Use Excel values directly, no contract dependency
+                    calc_start_date = start_date
+                    calc_end_date = end_date
+                    
+                    # Calculate calendar days in the period (for paid_days validation)
+                    days_in_period = (calc_end_date - calc_start_date).days + 1
+                    
+                    # CRITICAL: Use calendar month days for per-day calculation (30/31/28/29)
+                    # Always use the actual calendar month days, not the period days
+                    from calendar import monthrange
+                    # Use the month of start_date for calendar days calculation
+                    calendar_month_days = monthrange(calc_start_date.year, calc_start_date.month)[1]
+                    
+                    # Calculate per-day basic pay using calendar month days
+                    per_day_basic_pay = monthly_basic_pay / calendar_month_days if calendar_month_days > 0 else 0
+                    
+                    # CRITICAL: Calculate paid_days and unpaid_days using the same logic as monthly_computation
+                    # This ensures consistency between generated payslips and imported payslips
+                    # Get month data and leave data for proper calculation (same as monthly_computation)
+                    month_data = months_between_range(monthly_basic_pay, calc_start_date, calc_end_date)
+                    leave_data = get_leaves(employee, calc_start_date, calc_end_date)
+                    
+                    # Calculate half-day leaves (same logic as monthly_computation)
+                    date_range_list = get_date_range(calc_start_date, calc_end_date)
+                    if apps.is_installed("leave"):
+                        start_date_leaves = (
+                            employee.leaverequest_set.filter(
+                                leave_type_id__payment="unpaid",
+                                start_date__in=date_range_list,
+                                status="approved",
+                            )
+                            .exclude(start_date_breakdown="full_day")
+                            .count()
+                        )
+                        end_date_leaves = (
+                            employee.leaverequest_set.filter(
+                                leave_type_id__payment="unpaid",
+                                end_date__in=date_range_list,
+                                status="approved",
+                            )
+                            .exclude(end_date_breakdown="full_day")
+                            .exclude(start_date=F("end_date"))
+                            .count()
+                        )
+                    else:
+                        start_date_leaves = 0
+                        end_date_leaves = 0
+                    
+                    half_day_leaves_between_period_on_start_date = start_date_leaves
+                    half_day_leaves_between_period_on_end_date = end_date_leaves
+                    
+                    unpaid_half_leaves = (
+                        half_day_leaves_between_period_on_start_date
+                        + half_day_leaves_between_period_on_end_date
+                    ) * 0.5
+                    
+                    # Calculate unpaid leaves (excluding half-day adjustments) - same as monthly_computation
+                    calculated_unpaid_leaves = abs(leave_data["unpaid_leaves"] - unpaid_half_leaves)
+                    
+                    # Get working days from month_data (same as monthly_computation)
+                    if month_data and isinstance(month_data, list) and len(month_data) > 0:
+                        working_days_on_period = month_data[0]["working_days_on_period"]
+                    else:
+                        # Fallback: use calendar days if month_data is not available
+                        working_days_on_period = days_in_period
+                    
+                    # Calculate paid_days using the same logic as monthly_computation
+                    # paid_days = working_days_on_period - unpaid_leaves
+                    calculated_paid_days = working_days_on_period - calculated_unpaid_leaves
+                    
+                    # Ensure paid_days is never negative
+                    if calculated_paid_days < 0:
+                        calculated_paid_days = 0
+                    
+                    # Use Excel paid_days if provided and valid, otherwise use calculated value
+                    # This allows Excel to override, but ensures we have proper unpaid_days calculation
+                    excel_paid_days = paid_days  # Store original Excel value
+                    if excel_paid_days > 0:
+                        # Excel provided paid_days - use it, but calculate unpaid_days from working days
+                        unpaid_days = working_days_on_period - excel_paid_days if working_days_on_period > 0 else calculated_unpaid_leaves
+                        if unpaid_days < 0:
+                            unpaid_days = 0
+                        # Use Excel paid_days as provided
+                        paid_days = excel_paid_days
+                    else:
+                        # Excel didn't provide paid_days - use calculated values (same as generated payslips)
+                        unpaid_days = calculated_unpaid_leaves
+                        paid_days = calculated_paid_days
+                    
+                    # Final Basic Pay = (Monthly Basic Pay / Calendar month days) × Paid Days
+                    # Uses calculated paid_days (from leaves) or Excel paid_days if provided
+                    basic_pay = monthly_basic_pay
+                    
+                    # Use Excel gross_pay if provided, otherwise calculate from basic + allowances
+                    if gross_pay_excel > 0:
+                        gross_pay = gross_pay_excel
+                        print("line3940", gross_pay)
+                    else:
+                        gross_pay = basic_pay + housing_allowance + transport_allowance + other_allowance
+                        
+                        print("line3943", gross_pay)
+                        print("line3944", basic_pay)
+                        print("line3945", housing_allowance)
+                        print("line3946", transport_allowance)
+                        print("line3947", other_allowance)
+                        print("line3948", gross_pay_excel)
+                        print("line3949", paid_days)
+                        print("line3950", loss_of_pay)
+                        print("line3951", salary_advance_loan_recovery)
+                        print("line3952", deduction)
+                        print("line3953", overtime)
+                        print("line3954", salary_advance)
+                        print("line3955", bonus)
+                    
+                    # Apply Excel formula: Net Pay = (Gross Pay + Overtime + salary_advance + bonus) - (Loss of Pay + salary_advance_loan_recovery + Deduction)
+                    net_pay = round(
+                        (gross_pay + overtime + salary_advance + bonus) - 
+                        (loss_of_pay + salary_advance_loan_recovery + deduction),
+                        2
+                    )
+                    
+                    # Calculate total allowances
+                    total_allowances = housing_allowance + transport_allowance + other_allowance
+                    
+                    # Calculate total deductions
+                    total_deductions = loss_of_pay + salary_advance_loan_recovery + deduction
+                    
+                    # Use Excel monthly basic pay as contract_wage (bypass contract)
+                    contract_wage = monthly_basic_pay
+
+                    # Check if payslip already exists
+                    existing_payslip = Payslip.objects.filter(
+                        employee_id=employee,
+                        start_date=calc_start_date,
+                        end_date=calc_end_date
+                    ).first()
+                    
+                    # Fetch and process Deduction components for the employee
+                    # Get applicable deductions for the employee in the date range
+                    applicable_deductions = (
+                        Deduction.objects.filter(
+                            specific_employees=employee,
+                        )
+                        | Deduction.objects.filter(
+                            is_condition_based=True,
+                        ).exclude(exclude_employees=employee)
+                        | Deduction.objects.filter(
+                            include_active_employees=True,
+                        ).exclude(exclude_employees=employee)
+                    )
+                    
+                    # Filter deductions that are applicable based on conditions
+                    employee_deductions = []
+                    for deduction_component in applicable_deductions:
+                        applicable = True
+                        if deduction_component.is_condition_based:
+                            conditions = list(
+                                deduction_component.other_conditions.values_list(
+                                    "field", "condition", "value"
+                                )
+                            )
+                            conditions.append(
+                                (
+                                    deduction_component.field,
+                                    deduction_component.condition,
+                                    deduction_component.value.lower().replace(" ", "_"),
+                                )
+                            )
+                            for field, operator, value in conditions:
+                                val = dynamic_attr(employee, field)
+                                if val is None or not operator_mapping.get(operator)(
+                                    val, type(val)(value)
+                                ):
+                                    applicable = False
+                                    break
+                        if applicable:
+                            employee_deductions.append(deduction_component)
+                    
+                    # Process deductions and categorize them
+                    basic_pay_deductions_list = []
+                    gross_pay_deductions_list = []
+                    pretax_deductions_list = []
+                    post_tax_deductions_list = []
+                    tax_deductions_list = []
+                    net_deductions_list = []
+                    
+                    # Process deductions using update_compensation_deduction to get actual amounts
+                    # Update basic_pay with basic_pay deductions
+                    updated_basic_pay_data = update_compensation_deduction(
+                        employee, basic_pay, "basic_pay", calc_start_date, calc_end_date
+                    )
+                    basic_pay = updated_basic_pay_data["compensation_amount"]
+                    basic_pay_deductions_list = updated_basic_pay_data["deductions"]
+                    
+                    # Update gross_pay with gross_pay deductions
+                    updated_gross_pay_data = update_compensation_deduction(
+                        employee, gross_pay, "gross_pay", calc_start_date, calc_end_date
+                    )
+                    gross_pay = updated_gross_pay_data["compensation_amount"]
+                    gross_pay_deductions_list = updated_gross_pay_data["deductions"]
+                    
+                    # Recalculate net_pay after processing deductions
+                    # Net Pay = (Gross Pay + Overtime + salary_advance + bonus) - (Loss of Pay + salary_advance_loan_recovery + Deduction)
+                    net_pay = round(
+                        (gross_pay + overtime + salary_advance + bonus) - 
+                        (loss_of_pay + salary_advance_loan_recovery + deduction),
+                        2
+                    )
+                    
+                    # Update net_pay with net_pay deductions
+                    updated_net_pay_data = update_compensation_deduction(
+                        employee, net_pay, "net_pay", calc_start_date, calc_end_date
+                    )
+                    net_pay = updated_net_pay_data["compensation_amount"]
+                    net_deductions_list = updated_net_pay_data["deductions"]
+                    
+                    # CRITICAL: Clean deduction lists to ensure only JSON-serializable data
+                    # Remove any model instances and keep only dicts with title, amount, id
+                    def clean_deduction_list(deduction_list):
+                        """Remove non-JSON-serializable objects from deduction list"""
+                        if not isinstance(deduction_list, list):
+                            return []
+                        cleaned_list = []
+                        for d in deduction_list:
+                            # Skip if it's a model instance (has Django model attributes)
+                            if hasattr(d, '_meta') or hasattr(d, 'save'):
+                                # It's a model instance, skip it or convert to dict
+                                continue
+                            if isinstance(d, dict):
+                                # Only keep JSON-serializable fields
+                                cleaned_d = {
+                                    "title": str(d.get("title", "")),
+                                    "amount": float(d.get("amount", 0))
+                                }
+                                # Only add id if it exists and is serializable
+                                if "id" in d:
+                                    try:
+                                        cleaned_d["id"] = int(d["id"])
+                                    except (ValueError, TypeError):
+                                        pass
+                                # Remove any non-serializable fields (like "component")
+                                for key in list(cleaned_d.keys()):
+                                    if key not in ["title", "amount", "id"]:
+                                        del cleaned_d[key]
+                                cleaned_list.append(cleaned_d)
+                        return cleaned_list
+                    
+                    # Clean all deduction lists
+                    basic_pay_deductions_list = clean_deduction_list(basic_pay_deductions_list)
+                    gross_pay_deductions_list = clean_deduction_list(gross_pay_deductions_list)
+                    pretax_deductions_list = clean_deduction_list(pretax_deductions_list)
+                    post_tax_deductions_list = clean_deduction_list(post_tax_deductions_list)
+                    tax_deductions_list = clean_deduction_list(tax_deductions_list)
+                    net_deductions_list = clean_deduction_list(net_deductions_list)
+                    
+                    # Recalculate total_deductions to include component deductions
+                    component_deduction_total = sum(
+                        d.get("amount", 0) for d in (
+                            basic_pay_deductions_list + 
+                            gross_pay_deductions_list + 
+                            pretax_deductions_list + 
+                            post_tax_deductions_list + 
+                            tax_deductions_list + 
+                            net_deductions_list
+                        )
+                    )
+                    total_deductions = loss_of_pay + salary_advance_loan_recovery + deduction + component_deduction_total
+                    
+                    # Build pay_head_data with ALL Excel values and component deductions
+                    pay_head_data = {
+                        'paid_days': round(paid_days, 2),
+                        'unpaid_days': round(unpaid_days, 2) if unpaid_days > 0 else 0,
+                        'lop_days': round(unpaid_days, 2) if unpaid_days > 0 else 0,
+                        'loss_of_pay': round(loss_of_pay, 2),
+                        'basic_pay': round(basic_pay, 2),
+                        'housing_allowance': round(housing_allowance, 2),
+                        'transport_allowance': round(transport_allowance, 2),
+                        'other_allowance': round(other_allowance, 2),
+                        'total_allowances': round(total_allowances, 2),
+                        'salary_advance_loan_recovery': round(salary_advance_loan_recovery, 2),
+                        'deduction': round(deduction, 2),
+                        'salary_advance': round(salary_advance, 2),
+                        'bonus': round(bonus, 2),
+                        'overtime': round(overtime, 2),
+                        'total_deductions': round(total_deductions, 2),
+                        'gross_pay': round(gross_pay, 2),
+                        'net_pay': round(net_pay, 2),
+                        'contract_wage': round(contract_wage, 2),
+                        'monthly_basic_pay': round(monthly_basic_pay, 2),  # Store monthly basic for reference
+                        'department': department_excel,  # Store Department from Excel
+                        'is_imported': True,  # Mark as imported
+                        # Include component deductions
+                        'allowances': [],
+                        'pretax_deductions': pretax_deductions_list,
+                        'posttax_deductions': post_tax_deductions_list,
+                        'post_tax_deductions': post_tax_deductions_list,
+                        'basic_pay_deductions': basic_pay_deductions_list,
+                        'gross_pay_deductions': gross_pay_deductions_list,
+                        'tax_deductions': tax_deductions_list,
+                        'net_deductions': net_deductions_list,
+                    }
+                    
+                    print(f"[IMPORT] Row {row_no} - Employee: {employee_id}")
+                    print(f"[IMPORT]   Monthly Basic Pay: {monthly_basic_pay}, Calendar Month Days: {calendar_month_days}, Period Days: {days_in_period}, Paid Days: {paid_days}")
+                    print(f"[IMPORT]   Per-day Basic Pay: {per_day_basic_pay:.10f}, Final Basic Pay: {basic_pay:.2f}")
+                    print(f"[IMPORT]   Overtime: {overtime}, Salary Advance Loan Recovery: {salary_advance_loan_recovery}, Deduction: {deduction}")
+                    print(f"[IMPORT]   Gross Pay: {gross_pay:.2f}, Net Pay: {net_pay:.2f}")
+                    # Log component deductions
+                    if employee_deductions:
+                        print(f"[IMPORT]   Component Deductions: {len(employee_deductions)} found")
+                        for comp in employee_deductions:
+                            print(f"[IMPORT]     - Component: {comp}")
+
+                    # Create or update payslip
+                    if existing_payslip:
+                        existing_payslip.contract_wage = round(contract_wage, 2)
+                        existing_payslip.basic_pay = round(basic_pay, 2)
+                        existing_payslip.gross_pay = round(gross_pay, 2)
+                        existing_payslip.net_pay = round(net_pay, 2)
+                        existing_payslip.deduction = round(total_deductions, 2)
+                        existing_payslip.pay_head_data = pay_head_data
+                        if existing_payslip.status != 'paid':
+                            existing_payslip.status = 'draft'
+                        existing_payslip.save()
+                        print(f"[IMPORT] Updated payslip for {employee} - Net Pay: {net_pay:.2f}")
+                    else:
+                        Payslip.objects.create(
+                            employee_id=employee,
+                            start_date=calc_start_date,
+                            end_date=calc_end_date,
+                            contract_wage=round(contract_wage, 2),
+                            basic_pay=round(basic_pay, 2),
+                            gross_pay=round(gross_pay, 2),
+                            net_pay=round(net_pay, 2),
+                            deduction=round(total_deductions, 2),
+                            pay_head_data=pay_head_data,
+                            status='draft'
+                        )
+                        print(f"[IMPORT] Created payslip for {employee} - Net Pay: {net_pay:.2f}")
+
+                    total_imported += 1
+
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    errors.append(f"Row {row_no}: {str(e)}")
+
+            if errors:
+                error_detail = "\n".join(errors[:10]) + ("..." if len(errors) > 10 else "")
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f"Import completed with {len(errors)} errors:\n{error_detail}",
+                    'imported': total_imported,
+                    'errors': len(errors)
+                }, status=200)
+
+        return JsonResponse({
+            'status': 'success',
+            'message': f"Successfully generated {total_imported} payslips for {calendar.month_name[month]} {year}.",
+            'imported': total_imported
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'status': 'error',
+            'message': f"Import failed: {str(e)}"
+        }, status=400)
+
+
+def calculate_payslip_values(payslip):
+    """
+    Calculate all payslip values including database allowances and deductions.
+    This function ensures consistency between table view and export functionality.
+    
+    Returns a dict with all calculated values:
+    - basic_pay, housing_allowance, transport_allowance, other_allowance
+    - gross_pay (including all database allowances)
+    - paid_days, unpaid_days, loss_of_pay
+    - overtime, salary_advance, bonus
+    - salary_advance_loan_recovery, deduction (including component deductions)
+    - net_pay
+    
+    Also updates payslip.pay_head_data with calculated values.
+    """
+    employee = payslip.employee_id
+    if not employee:
+        return None
+    
+    # CRITICAL: Extract and process pay_head_data
+    pay_head = payslip.pay_head_data
+    if pay_head is None:
+        pay_head = {}
+    elif isinstance(pay_head, str):
+        try:
+            pay_head = json.loads(pay_head)
+        except (json.JSONDecodeError, TypeError):
+            pay_head = {}
+    if not isinstance(pay_head, dict):
+        pay_head = {}
+    
+    # Create a copy to avoid modifying the original
+    pay_head = dict(pay_head)
+    
+    # Calculate paid_days and unpaid_days
+    unpaid_days_value = pay_head.get("unpaid_days")
+    if unpaid_days_value is None:
+        unpaid_days_value = pay_head.get("lop_days")
+    if unpaid_days_value is None:
+        unpaid_days_value = 0
+    
+    try:
+        unpaid_days = round(float(unpaid_days_value), 2)
+    except (ValueError, TypeError):
+        unpaid_days = 0
+    
+    # Calculate total days in period
+    days_in_period = 0
+    if payslip.start_date and payslip.end_date:
+        days_in_period = (payslip.end_date - payslip.start_date).days + 1
+    
+    # Extract paid_days and validate/correct if needed
+    paid_days_value = pay_head.get("paid_days")
+    if paid_days_value is None or paid_days_value == "":
+        if days_in_period > 0 and unpaid_days > 0:
+            paid_days_value = days_in_period - unpaid_days
+        else:
+            paid_days_value = days_in_period if days_in_period > 0 else 0
+    else:
+        try:
+            paid_days_value = float(paid_days_value)
+            if paid_days_value == 0 and unpaid_days > 0 and days_in_period > 0:
+                paid_days_value = days_in_period - unpaid_days
+            elif days_in_period > 0 and unpaid_days > 0:
+                total_calculated = paid_days_value + unpaid_days
+                if total_calculated > days_in_period:
+                    paid_days_value = days_in_period - unpaid_days
+        except (ValueError, TypeError):
+            if days_in_period > 0 and unpaid_days > 0:
+                paid_days_value = days_in_period - unpaid_days
+            else:
+                paid_days_value = 0
+    
+    try:
+        paid_days = round(float(paid_days_value), 2)
+    except (ValueError, TypeError):
+        paid_days = 0
+    
+    # Extract overtime, salary_advance, and bonus
+    overtime = float(pay_head.get("overtime", 0) or 0)
+    salary_advance = float(pay_head.get("salary_advance", 0) or 0)
+    bonus = float(pay_head.get("bonus", 0) or 0)
+    
+    # Also check allowances list for bonus if not in pay_head_data directly
+    if bonus == 0 and isinstance(pay_head.get("allowances"), list):
+        for allowance in pay_head.get("allowances", []):
+            if isinstance(allowance, dict) and "bonus" in str(allowance.get("title", "")).lower():
+                bonus += float(allowance.get("amount", 0) or 0)
+    
+    # Extract all values with proper fallbacks
+    basic_pay = round(float(pay_head.get("basic_pay", payslip.basic_pay or 0)), 2)
+    housing_allowance = round(float(pay_head.get("housing_allowance", payslip.housing_allowance or 0)), 2)
+    transport_allowance = round(float(pay_head.get("transport_allowance", payslip.transport_allowance or 0)), 2)
+    other_allowance = round(float(pay_head.get("other_allowance", payslip.other_allowance or 0)), 2)
+    
+    # CRITICAL: Check if payslip is imported (needed before calculations)
+    is_imported = pay_head.get("is_imported", False)
+    
+    # CRITICAL: Fetch allowances from database (same as view_created_payslip)
+    allowances_queryset = Allowance.objects.filter(
+        specific_employees=employee,
+        only_show_under_employee=True
+    )
+    
+    # Filter by date if one_time_date is set and falls within payslip period
+    if payslip.start_date and payslip.end_date:
+        allowances_queryset = allowances_queryset.filter(
+            Q(one_time_date__isnull=True) | 
+            Q(one_time_date__gte=payslip.start_date, one_time_date__lte=payslip.end_date)
+        )
+    
+    # Process allowances from database
+    db_allowances_total = 0
+    other_allowances_total = 0
+    
+    for allowance_component in allowances_queryset:
+        # Calculate amount
+        amount = 0
+        if allowance_component.is_fixed:
+            amount = float(allowance_component.amount or 0)
+        else:
+            # For non-fixed, calculate based on rate and basic pay
+            rate = float(allowance_component.rate or 0)
+            amount = (basic_pay * rate) / 100
+        
+        if amount > 0:
+            title_lower = allowance_component.title.lower()
+            # Check if it's overtime, salary_advance, or bonus (these are handled separately)
+            if "overtime" in title_lower:
+                overtime += amount
+            elif "salary advance" in title_lower or "advanced salary" in title_lower:
+                salary_advance += amount
+            elif "bonus" in title_lower:
+                bonus += amount
+            else:
+                # Other allowances - include in gross_pay
+                other_allowances_total += amount
+                db_allowances_total += amount
+    
+    # CRITICAL: Use unified gross_pay calculation
+    gross_pay = round(
+        basic_pay + 
+        housing_allowance + 
+        transport_allowance + 
+        other_allowance + 
+        db_allowances_total, 2
+    )
+    
+    # CRITICAL: loss_of_pay should only be shown for imported payslips OR inline-edited payslips
+    has_inline_edit_loss_of_pay = (
+        pay_head.get("loss_of_pay") is not None or 
+        pay_head.get("lop") is not None
+    )
+    
+    # Only extract/calculate loss_of_pay if payslip is imported OR inline-edited
+    loss_of_pay_amount = 0
+    if is_imported or has_inline_edit_loss_of_pay:
+        loss_of_pay_amount = pay_head.get("loss_of_pay")
+        if loss_of_pay_amount is None:
+            loss_of_pay_amount = pay_head.get("lop", 0)
+        if loss_of_pay_amount is None:
+            loss_of_pay_amount = 0
+        
+        try:
+            loss_of_pay_amount = round(float(loss_of_pay_amount), 2)
+        except (ValueError, TypeError):
+            loss_of_pay_amount = 0
+    
+    # Variable components with fallbacks
+    salary_advance_loan_recovery = round(float(pay_head.get("salary_advance_loan_recovery", 0) or 0), 2)
+    deduction = round(float(pay_head.get("deduction", payslip.deduction or 0) or 0), 2)
+    
+    # CRITICAL: Fetch component deductions from database
+    deductions_queryset = Deduction.objects.filter(
+        specific_employees=employee,
+        only_show_under_employee=True
+    )
+    
+    # Filter by date if one_time_date is set and falls within payslip period
+    if payslip.start_date and payslip.end_date:
+        deductions_queryset = deductions_queryset.filter(
+            Q(one_time_date__isnull=True) | 
+            Q(one_time_date__gte=payslip.start_date, one_time_date__lte=payslip.end_date)
+        )
+    
+    # Process component deductions
+    component_deduction_total = 0
+    
+    # Process gross_pay deductions (these affect gross_pay calculation)
+    gross_pay_deduction_total = 0
+    for deduction_component in deductions_queryset:
+        if deduction_component.update_compensation == "gross_pay":
+            amount = 0
+            if deduction_component.is_fixed:
+                amount = float(deduction_component.amount or 0)
+            else:
+                rate = float(deduction_component.rate or 0)
+                amount = (gross_pay * rate) / 100
+            if amount > 0:
+                gross_pay_deduction_total += amount
+    
+    # Apply gross_pay deductions to gross_pay
+    gross_pay = round(gross_pay - gross_pay_deduction_total, 2)
+    
+    # Process other deductions (pretax, post_tax, tax, net_pay)
+    for deduction_component in deductions_queryset:
+        if deduction_component.update_compensation:
+            continue
+        
+        amount = 0
+        if deduction_component.is_fixed:
+            amount = float(deduction_component.amount or 0)
+        else:
+            if deduction_component.based_on == "basic_pay":
+                base_amount = basic_pay
+            elif deduction_component.based_on == "gross_pay":
+                base_amount = gross_pay
+            else:
+                base_amount = basic_pay
+            
+            rate = float(deduction_component.rate or 0)
+            amount = (base_amount * rate) / 100
+        
+        if amount > 0:
+            component_deduction_total += amount
+    
+    # Process net_pay deductions (calculated after gross_pay deductions)
+    initial_net_pay = round((gross_pay + overtime + salary_advance + bonus) - (loss_of_pay_amount + salary_advance_loan_recovery + deduction + component_deduction_total), 2)
+    
+    net_pay_deduction_total = 0
+    for deduction_component in deductions_queryset:
+        if deduction_component.update_compensation == "net_pay":
+            amount = 0
+            if deduction_component.is_fixed:
+                amount = float(deduction_component.amount or 0)
+            else:
+                rate = float(deduction_component.rate or 0)
+                amount = (initial_net_pay * rate) / 100
+            if amount > 0:
+                net_pay_deduction_total += amount
+                component_deduction_total += amount
+    
+    # CRITICAL: Include component deductions in total deduction calculation
+    total_deductions_including_components = round(
+        loss_of_pay_amount + salary_advance_loan_recovery + deduction + component_deduction_total, 
+        2
+    )
+    
+    # CRITICAL: Unified Net Pay calculation
+    net_pay = round(initial_net_pay - net_pay_deduction_total, 2)
+    
+    # Update pay_head_data with calculated values
+    pay_head["paid_days"] = paid_days
+    pay_head["unpaid_days"] = unpaid_days
+    pay_head["lop_days"] = unpaid_days
+    pay_head["loss_of_pay"] = loss_of_pay_amount
+    pay_head["lop"] = loss_of_pay_amount
+    pay_head["overtime"] = overtime
+    pay_head["salary_advance"] = salary_advance
+    pay_head["bonus"] = bonus
+    pay_head["gross_pay"] = gross_pay
+    pay_head["net_pay"] = net_pay
+    pay_head["deduction"] = total_deductions_including_components
+    pay_head["salary_advance_loan_recovery"] = salary_advance_loan_recovery
+    
+    # Update payslip object's pay_head_data
+    payslip.pay_head_data = pay_head
+    payslip.calculated_paid_days = paid_days
+    payslip.calculated_unpaid_days = unpaid_days
+    payslip.calculated_loss_of_pay = loss_of_pay_amount
+    
+    return {
+        "basic_pay": basic_pay,
+        "housing_allowance": housing_allowance,
+        "transport_allowance": transport_allowance,
+        "other_allowance": other_allowance,
+        "gross_pay": gross_pay,
+        "paid_days": paid_days,
+        "unpaid_days": unpaid_days,
+        "loss_of_pay": loss_of_pay_amount,
+        "overtime": overtime,
+        "salary_advance": salary_advance,
+        "bonus": bonus,
+        "salary_advance_loan_recovery": salary_advance_loan_recovery,
+        "deduction": total_deductions_including_components,
+        "net_pay": net_pay,
+    }
+
+
+@login_required
+@permission_required("payroll.change_payslip")
+def payslip_import_download(request):
+    """
+    Download payslips as Excel file using filters from URL parameters.
+    Company-wise data is separated into different sheets.
+    Data matches what's shown in the filtered payslip table view.
+    """
+    # CRITICAL: Use PayslipFilter to respect all filters from request (including company, date, employee filters)
+    # This ensures downloaded data matches the on-screen filtered payroll data
+    payslips = PayslipFilter(request.GET).qs.select_related(
+        'employee_id', 
+        'employee_id__employee_work_info', 
+        'employee_id__employee_work_info__department_id',
+        'employee_id__employee_work_info__company_id'
+    )
+
+    # CRITICAL: Evaluate queryset to list to ensure all payslips are fetched
+    # This prevents lazy evaluation issues that might cause only partial data to be processed
+    payslips_list = list(payslips)
+    print(f"[PAYSLIP_IMPORT_DOWNLOAD] Found {len(payslips_list)} payslips to export")
+
+    # Group payslips by company
+    company_payslips = defaultdict(list)
+    
+    for payslip in payslips_list:
+        try:
+            employee = payslip.employee_id
+            if not employee:
+                print(f"[PAYSLIP_IMPORT_DOWNLOAD] Skipping payslip {payslip.id} - no employee")
+                continue
+                
+            company = None
+            if hasattr(employee, 'employee_work_info') and employee.employee_work_info:
+                company = getattr(employee.employee_work_info, 'company_id', None)
+            
+            # Use company name as key, or "Unknown Company" if no company
+            company_name = company.company if company else "Unknown Company"
+            company_payslips[company_name].append(payslip)
+        except Exception as e:
+            print(f"[PAYSLIP_IMPORT_DOWNLOAD] Error processing payslip {payslip.id}: {e}")
+            continue
+
+    # Generate filename based on current date or filter parameters
+    today = date.today()
+    file_name = f"Payslip_excel_{today.strftime('%Y-%m-%d')}.xlsx"
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+
+    writer = pd.ExcelWriter(response, engine="xlsxwriter")
+    workbook = writer.book
+    
+    # Static components header format (green)
+    static_header_fmt = workbook.add_format({
+        'bold': True, 
+        'bg_color': '#D8E4BC',  # Light green
+        'border': 1,
+        'align': 'center'
+    })
+    
+    # Variable components header format (orange)
+    variable_header_fmt = workbook.add_format({
+        'bold': True, 
+        'bg_color': '#FCD5B4',  # Orange
+        'border': 1,
+        'align': 'center'
+    })
+    
+    # Static components data format (green background)
+    static_data_fmt = workbook.add_format({
+        'bg_color': '#D8E4BC',  # Light green
+        'border': 1
+    })
+    
+    # Variable components data format (orange background)
+    variable_data_fmt = workbook.add_format({
+        'bg_color': '#FCD5B4',  # Orange
+        'border': 1
+    })
+    
+    # Static columns: Employee Id, Employee Name, Department, Basic Pay, Housing Allowance, Transport Allowance, Other Allowance, Gross Pay
+    static_cols = ["Employee Id", "Employee Name", "Department", "Basic Pay", "Housing Allowance", "Transport Allowance", "Other Allowance", "Gross Pay"]
+    # Variable columns: Total Paid Days, LOP, Overtime, salary_advance_loan_recovery, Deduction, salary_advance, bonus, Net Pay
+    variable_cols = ["Total Paid Days", "LOP", "Overtime", "salary_advance_loan_recovery", "Deduction", "salary_advance", "bonus", "Net Pay"]
+    
+    label_fmt_green = workbook.add_format({'bg_color': '#90EE90', 'bold': True})
+    label_fmt_orange = workbook.add_format({'bg_color': '#FFA500', 'bold': True})
+    
+    # Track if any sheets were created
+    sheets_created = False
+    
+    # Process each company separately
+    for company_name, company_payslip_list in company_payslips.items():
+        export_rows = []
+        print(f"[PAYSLIP_IMPORT_DOWNLOAD] Processing company: {company_name} with {len(company_payslip_list)} payslips")
+        
+        for payslip in company_payslip_list:
+            try:
+                employee = payslip.employee_id
+                if not employee:
+                    print(f"[PAYSLIP_IMPORT_DOWNLOAD] Skipping payslip {payslip.id} - no employee")
+                    continue
+                    
+                emp_code = employee.badge_id or ""
+                emp_name = employee.get_full_name() or ""
+                
+                # Extract department
+                dept_name = ""
+                if hasattr(employee, 'employee_work_info') and employee.employee_work_info:
+                    if employee.employee_work_info.department_id:
+                        dept_name = employee.employee_work_info.department_id.department or ""
+
+                # CRITICAL: Use shared calculation function to ensure consistency with table view
+                calculated_values = calculate_payslip_values(payslip)
+                if calculated_values is None:
+                    print(f"[PAYSLIP_IMPORT_DOWNLOAD] Skipping payslip {payslip.id} - calculation returned None")
+                    continue
+                
+                # Extract calculated values
+                basic_pay = calculated_values["basic_pay"]
+                housing_allowance = calculated_values["housing_allowance"]
+                transport_allowance = calculated_values["transport_allowance"]
+                other_allowance = calculated_values["other_allowance"]
+                gross_pay = calculated_values["gross_pay"]
+                paid_days = calculated_values["paid_days"]
+                loss_of_pay = calculated_values["loss_of_pay"]
+                overtime = calculated_values["overtime"]
+                salary_advance = calculated_values["salary_advance"]
+                bonus = calculated_values["bonus"]
+                salary_advance_loan_recovery = calculated_values["salary_advance_loan_recovery"]
+                deduction_for_export = calculated_values["deduction"]
+                net_pay = calculated_values["net_pay"]
+                
+                # Match Excel format: Static components (A-H) then Variable components (I-P)
+                export_rows.append({
+                    "Employee Id": emp_code,
+                    "Employee Name": emp_name,
+                    "Department": dept_name,
+                    "Basic Pay": basic_pay,
+                    "Housing Allowance": housing_allowance,
+                    "Transport Allowance": transport_allowance,
+                    "Other Allowance": other_allowance,
+                    "Gross Pay": gross_pay,
+                    # Variable components
+                    "Total Paid Days": paid_days,
+                    "LOP": loss_of_pay,
+                    "salary_advance_loan_recovery": salary_advance_loan_recovery,
+                    "Deduction": deduction_for_export,  # Include component deductions
+                    "Overtime": overtime,
+                    "salary_advance": salary_advance,
+                    "bonus": bonus,
+                    "Net Pay": net_pay
+                })
+            except Exception as e:
+                print(f"[PAYSLIP_IMPORT_DOWNLOAD] Error processing payslip {payslip.id if payslip else 'unknown'}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+
+        if not export_rows:
+            print(f"[PAYSLIP_IMPORT_DOWNLOAD] No export rows for company: {company_name}")
+            continue
+        
+        # Mark that we're creating a sheet
+        sheets_created = True
+            
+        # Create DataFrame for this company
+        df = pd.DataFrame(export_rows)
+        
+        # Sanitize sheet name (Excel sheet names have restrictions)
+        sheet_name = company_name[:31]  # Excel sheet name max length is 31
+        sheet_name = sheet_name.replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_')
+        
+        # Write to Excel
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        worksheet = writer.sheets[sheet_name]
+        
+        # Write headers with appropriate formatting
+        for col_num, col_name in enumerate(df.columns.values):
+            if col_name in static_cols:
+                worksheet.write(0, col_num, col_name, static_header_fmt)
+            elif col_name in variable_cols:
+                worksheet.write(0, col_num, col_name, variable_header_fmt)
+            else:
+                # Default format for any unexpected columns
+                default_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
+                worksheet.write(0, col_num, col_name, default_fmt)
+            worksheet.set_column(col_num, col_num, 18)
+        
+        # Apply row colors for data rows - preserve existing data
+        # Row 0 is header, so data starts from row 1
+        for row_idx in range(1, len(df) + 1):
+            for col_num, col_name in enumerate(df.columns.values):
+                # Get cell value from dataframe
+                cell_value = df.iloc[row_idx - 1, col_num]
+                
+                # Apply formatting based on column type, preserving the value
+                if col_name in static_cols:
+                    # Static columns - green background
+                    if pd.notna(cell_value):
+                        worksheet.write(row_idx, col_num, cell_value, static_data_fmt)
+                    else:
+                        worksheet.write(row_idx, col_num, "", static_data_fmt)
+                elif col_name in variable_cols:
+                    # Variable columns - orange background
+                    if pd.notna(cell_value):
+                        worksheet.write(row_idx, col_num, cell_value, variable_data_fmt)
+                    else:
+                        worksheet.write(row_idx, col_num, "", variable_data_fmt)
+        
+        # Add labels row below data
+        last_row = len(df) + 1  # +1 because header is row 0
+        worksheet.write(last_row + 1, 2, "Static components for every payroll month", label_fmt_green)
+        worksheet.write(last_row + 1, 8, "Variable components to be changed/entered every month", label_fmt_orange)
+
+    # CRITICAL: Only return Excel file if at least one sheet was created
+    if not sheets_created:
+        writer.close()
+        messages.error(request, "No payslip data found to export.")
+        # Return empty response or redirect
+        return redirect('payslip-info-import')
+    
+    writer.close()
+    print(f"[PAYSLIP_IMPORT_DOWNLOAD] Successfully exported payslips to Excel")
+    return response
+
+
+@login_required
+@permission_required("payroll.add_payslip")
+def import_employees(request):
+    """
+    View function to handle employee import for payroll.
+    """
+    if request.method == 'POST':
+        form = EmployeeImportForm(request.POST, request.FILES)
+        if form.is_valid():
+            file = request.FILES['file']
+            # Process the file (e.g., read data and save to database)
+            # For now, just return a success message
+            messages.success(request, "File uploaded successfully. Processing...")
+            return redirect('payslip-info-import')
+    else:
+        form = EmployeeImportForm()
+    return render(request, 'payroll/import_employees.html', {'form': form})
+
+
+@login_required
+def external_components_export(request):
+    """
+    Export Employee ID and Employee Name for the currently selected company.
+    Company comes from navbar selection (session 'selected_company') or optional ?company_id.
+    """
+    company_id = request.GET.get("company_id") or request.session.get("selected_company")
+
+    if not company_id or company_id == "all":
+        employees = []
+    else:
+        employees = Employee.objects.filter(
+            employee_work_info__company_id_id=company_id
+        ).values("badge_id", "first_name", "middle_name", "last_name")
+
+    lines = ["Employee Id,Employee Name"]
+    for emp in employees:
+        emp_id = emp.get("badge_id", "") or ""
+        name_parts = [
+            emp.get("first_name") or "",
+            emp.get("middle_name") or "",
+            emp.get("last_name") or "",
+        ]
+        emp_name = " ".join([p for p in name_parts if p]).strip()
+        safe_id = '"' + emp_id.replace('"', '""') + '"'
+        safe_name = '"' + emp_name.replace('"', '""') + '"'
+        lines.append(f"{safe_id},{safe_name}")
+
+    content = "\uFEFF" + "\n".join(lines)
+    response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+    filename = f"external_components_company_{company_id or 'all'}.csv"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response

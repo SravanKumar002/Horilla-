@@ -16,7 +16,7 @@
     <div class="oh-modal__dialog">
         <div class="oh-modal__dialog-header">
             <h2 class="oh-modal__dialog-title" id="addEmployeeModalLabel">
-                {% trans "Validate Attendances Request" %}
+                {% trans "Regularise Attendance Request" %}
             </h2>
             <button class="oh-modal__close" aria-label="Close">
                 <ion-icon name="close-outline"></ion-icon>
@@ -32,7 +32,7 @@
     <div class="oh-modal__dialog">
         <div class="oh-modal__dialog-header pb-0">
             <h2 class="oh-modal__dialog-title" id="addEmployeeModalLabel">
-                {% trans "Validate Attendances Request" %}
+                {% trans "Regularise Attendance Request" %}
             </h2>
             <button class="oh-modal_close--custom"
                 onclick="event.stopPropagation(); var modalElement = this.closest('.oh-modal'); modalElement.classList.toggle('oh-modal--show');">
@@ -93,7 +93,7 @@
                                         <select class="oh-select mt-1 w-100" id="id_field" name="field"
                                             class="select2-selection select2-selection--single">
                                             {% for field in gp_fields %}
-                                                <option value="{{ field.0 }}">{% trans field.1 %}</option>
+                                            <option value="{{ field.0 }}">{% trans field.1 %}</option>
                                             {% endfor %}
                                         </select>
                                     </div>
@@ -102,40 +102,42 @@
                         </div>
                     </div>
                 </div>
-                    <div class="oh-dropdown" x-data="{open: false}">
-                        <button class="oh-btn oh-btn--dropdown ml-2" @click="open = !open" @click.outside="open = false"
-                            onclick="event.preventDefault()">
-                            {% trans "Actions" %}
-                        </button>
-                        <div class="oh-dropdown__menu oh-dropdown__menu--right" x-show="open" style="display: none">
-                            <ul class="oh-dropdown__items">
-                                <li class="oh-dropdown__item">
-                                    <a href="#" class="oh-dropdown__link" onclick="event.preventDefault();event.stopPropagation()" id="attendanceAddToBatch">{% trans "Add to batch" %}</a>
-                                    <span data-toggle="oh-modal-toggle" id="attendanceAddToBatchButton"
-                                        data-target="#objectDetailsModal" hx-get="{% url 'attendance-add-to-batch' %}"
-                                        hx-target="#objectDetailsModalTarget" hx-vals="">
-                                </li>
-                                <li class="oh-dropdown__item">
-                                    <a class="oh-dropdown__link" onclick="event.preventDefault();event.stopPropagation()" id="attendanceAddToBatch"
-                                        data-toggle="oh-modal-toggle"
-                                        data-target="#objectDetailsModal" hx-get="{% url 'get-batches' %}"
-                                        hx-target="#objectDetailsModalTarget">{% trans "Batches" %}</a>
-                                </li>
-                                {% if perms.attendance.add_attendanceovertime or request.user|is_reportingmanager %}
-                                    <li class="oh-dropdown__item">
-                                        <a href="#" class="oh-dropdown__link" id="reqAttendanceBulkApprove"
-                                            data-toggle="oh-modal-toggle">{% trans "Bulk Approve" %}</a>
-                                    </li>
-                                {% endif %}
-                                {% if perms.attendance.delete_attendanceovertime %}
-                                    <li class="oh-dropdown__item">
-                                        <a href="#" id="reqAttendanceBulkReject"
-                                            class="oh-dropdown__link oh-dropdown__link--danger">{% trans "Bulk Reject" %}</a>
-                                    </li>
-                                {% endif %}
-                            </ul>
-                        </div>
+                <div class="oh-dropdown" x-data="{open: false}">
+                    <button class="oh-btn oh-btn--dropdown ml-2" @click="open = !open" @click.outside="open = false"
+                        onclick="event.preventDefault()">
+                        {% trans "Actions" %}
+                    </button>
+                    <div class="oh-dropdown__menu oh-dropdown__menu--right" x-show="open" style="display: none">
+                        <ul class="oh-dropdown__items">
+                            <li class="oh-dropdown__item">
+                                <a href="#" class="oh-dropdown__link"
+                                    onclick="event.preventDefault();event.stopPropagation()"
+                                    id="attendanceAddToBatch">{% trans "Add to batch" %}</a>
+                                <span data-toggle="oh-modal-toggle" id="attendanceAddToBatchButton"
+                                    data-target="#objectDetailsModal" hx-get="{% url 'attendance-add-to-batch' %}"
+                                    hx-target="#objectDetailsModalTarget" hx-vals="">
+                            </li>
+                            <li class="oh-dropdown__item">
+                                <a class="oh-dropdown__link" onclick="event.preventDefault();event.stopPropagation()"
+                                    id="attendanceAddToBatch" data-toggle="oh-modal-toggle"
+                                    data-target="#objectDetailsModal" hx-get="{% url 'get-batches' %}"
+                                    hx-target="#objectDetailsModalTarget">{% trans "Batches" %}</a>
+                            </li>
+                            {% if perms.attendance.add_attendanceovertime or request.user|is_reportingmanager %}
+                            <li class="oh-dropdown__item">
+                                <a href="#" class="oh-dropdown__link" id="reqAttendanceBulkApprove"
+                                    data-toggle="oh-modal-toggle">{% trans "Bulk Approve" %}</a>
+                            </li>
+                            {% endif %}
+                            {% if perms.attendance.delete_attendanceovertime %}
+                            <li class="oh-dropdown__item">
+                                <a href="#" id="reqAttendanceBulkReject"
+                                    class="oh-dropdown__link oh-dropdown__link--danger">{% trans "Bulk Reject" %}</a>
+                            </li>
+                            {% endif %}
+                        </ul>
                     </div>
+                </div>
             </div>
 
 

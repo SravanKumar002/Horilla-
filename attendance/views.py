@@ -1343,3 +1343,67 @@ def dashboard_attendance(request):
     for dept in departments:
         data_set.append(generate_data_set(request, dept))
     return JsonResponse({"dataSet": data_set, "labels": labels})
+
+
+@login_required
+def attendance_month_view(request):
+    # GET YEAR & MONTH
+    year = int(request.GET.get("year", date.today().year))
+    month = int(request.GET.get("month", date.today().month))
+
+    # MONTH RANGE
+    _, last_day = monthrange(year, month)
+
+    # GET ATTENDANCES OF THAT MONTH
+    attendances = Attendance.objects.filter(
+        employee_id__employee_user_id=request.user,
+        attendance_date__year=year,
+        attendance_date__month=month
+    )
+
+    att_map = {a.attendance_date: a for a in attendances}
+
+    # LATE/EARLY
+    late_entries = AttendanceLateComeEarlyOut.objects.select_related("attendance_id").all()
+
+    late_map = {}
+    penalties_map = {}
+
+    for entry in late_entries:
+        att = entry.attendance_id
+        if not att:
+            continue
+
+        late_map.setdefault(att.attendance_date, []).append(entry.get_type_display())
+        penalties_map[att.attendance_date] = penalties_map.get(att.attendance_date, 0) + entry.get_penalties_count()
+
+    # BUILD DAYS (FULL MONTH)
+    days = []
+    for d in range(1, last_day + 1):
+        cur_date = date(year, month, d)
+        att = att_map.get(cur_date)
+
+        # STATUS
+        if att:
+            if att.is_validate_request_approved:
+                status = "approved"
+            elif att.is_validate_request:
+                status = "requested"
+            else:
+                status = "on_time"
+        else:
+            status = "no_record"
+
+        days.append({
+            "date": cur_date,
+            "attendance": att,
+            "types": late_map.get(cur_date, []),
+            "penalties": penalties_map.get(cur_date, 0),
+            "status": status,
+        })
+
+    return render(
+        request,
+        "attendance/own_attendance/attendances_month.html",
+        {"days": days, "year": year, "month": month},
+    )

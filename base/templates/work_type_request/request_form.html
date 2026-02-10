@@ -1,26 +1,38 @@
-{% load i18n %}
-{% if messages %}
-    <script>
-        setTimeout(function () {
-            reloadMessage();
-            $(".oh-modal__close").click();
-        }, 1000);
-    </script>
-    {% if close_hx_url %}
-        <span hx-get="{{close_hx_url}}" hx-target="{{close_hx_target}}" hx-trigger="load"></span>
-    {% endif %}
-{% endif %}
+{% load i18n %} {% load static %}
 <div class="oh-modal__dialog-header">
-    <span class="oh-modal__dialog-title" id="objectCreateModalLabel">{{form.verbose_name}}</span>
-    <button class="oh-modal__close" aria-label="Close">
+    <h2 class="oh-modal__dialog-title" id="createTitle">
+        {% trans "Create" %} {{form.verbose_name}}
+    </h2>
+    <button type="button" class="oh-modal__close" aria-label="Close">
         <ion-icon name="close-outline"></ion-icon>
     </button>
 </div>
-<div class="oh-modal__dialog-body" id="formBody">
-    <form hx-post="{{ request.get_full_path }}"
-        hx-target=" {% if form.instance.id %} #objectUpdateModalTarget {% else %} #objectCreateModalTarget {% endif %}">
-        {{form.as_p}}
-    </form>
+
+<!-- htmx form -->
+<div class="oh-modal__dialog-body">
+    {% if messages %}
+    <div class="oh-wrapper">
+        {% for message in messages %}
+        <div class="oh-alert-container">
+            <div class="oh-alert oh-alert--animated {{message.tags}}">
+                {{ message }}
+            </div>
+        </div>
+        {% endfor %}
+        <script>
+            setTimeout(function () {
+                $(".oh-modal__close").click();
+            }, 1000);
+        </script>
+    </div>
+    {% endif %}
+
+    <div class="oh-modal__dialog-body" id="formBody">
+        <form hx-post="{{ request.get_full_path }}"
+            hx-target=" {% if form.instance.id %} #objectUpdateModalTarget {% else %} #objectCreateModalTarget {% endif %}">
+            {{form.as_p}}
+        </form>
+    </div>
 </div>
 <script>
     function toggleFunctionWorkTypeRequestForm() {

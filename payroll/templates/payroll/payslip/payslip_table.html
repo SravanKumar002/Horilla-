@@ -1,210 +1,289 @@
 {% load static %}
 {% load i18n horillafilters %}
 {% if messages %}
-    <div class="oh-wrapper">
-        {% for message in messages %}
-            <div class="oh-alert-container">
-                <div class="oh-alert oh-alert--animated {{message.tags}}">
-                    {{ message }}
-                </div>
-            </div>
-        {% endfor %}
+<div class="oh-wrapper">
+    {% for message in messages %}
+    <div class="oh-alert-container">
+        <div class="oh-alert oh-alert--animated {{message.tags}}">
+            {{ message }}
+        </div>
     </div>
+    {% endfor %}
+</div>
 {% endif %}
 {% include 'filter_tags.html' %}
 {% if not request.GET.dashboard %}
-    <div class="oh-checkpoint-badge text-success mb-2" id="selectAllPayslip" style="cursor: pointer">
-        {% trans "Select All Payslips" %}
-    </div>
-    <div class="oh-checkpoint-badge text-secondary mb-2" id="unselectAllPayslip" style="cursor: pointer;display:none;">
-        {% trans "Unselect All Payslips" %}
-    </div>
-    <div class="oh-checkpoint-badge text-info mb-2" id="exportPayslips" style="cursor: pointer;display:none;">
-        {% trans "Export Payslips" %}
-    </div>
-    <div class="oh-checkpoint-badge text-danger mb-2" id="selectedSlipShow"></div>
+<div class="oh-checkpoint-badge text-success mb-2" id="selectAllPayslip" style="cursor: pointer">
+    {% trans "Select All Payslips" %}
+</div>
+<div class="oh-checkpoint-badge text-secondary mb-2" id="unselectAllPayslip" style="cursor: pointer;display:none;">
+    {% trans "Unselect All Payslips" %}
+</div>
+<div class="oh-checkpoint-badge text-info mb-2" id="exportPayslips" style="cursor: pointer;display:none;">
+    {% trans "Export Payslips" %}
+</div>
+<div class="oh-checkpoint-badge text-danger mb-2" id="selectedSlipShow"></div>
+<div class="oh-checkpoint-badge text-primary mb-2" id="editPayslipBulk" style="cursor: pointer; display:inline-flex; align-items:center; gap:6px;">
+    <ion-icon name="create-outline"></ion-icon>
+    {% trans "Bulk Edit" %}
+</div>
+<div class="oh-checkpoint-badge text-success mb-2 save-payslip-bulk" id="savePayslipBulk" style="cursor: pointer; display:inline-flex; align-items:center; gap:6px;">
+    <ion-icon name="save-outline"></ion-icon>
+    {% trans "Save Selected" %}
+</div>
 {% endif %}
 {% if payslips %}
-    <!-- start of column toggle -->
-    <div class="oh-table_sticky--wrapper">
-        <div class="oh-sticky-dropdown--header">
-            <div class="oh-dropdown" x-data="{open: false}">
-                <button class="oh-sticky-dropdown_btn " @click="open = !open"><ion-icon name="ellipsis-vertical-sharp"
-                        role="img" class="md hydrated" aria-label="ellipsis vertical sharp"></ion-icon></button>
-                <div class="oh-dropdown__menu oh-sticky-table_dropdown" x-show="open" @click.outside="open = false">
-                    <ul class="oh-dropdown__items" id="payslipCells">
-                    </ul>
-                </div>
+<div class="oh-table_sticky--wrapper">
+    <div class="oh-sticky-dropdown--header">
+        <div class="oh-dropdown" x-data="{open: false}" x-cloak>
+            <button class="oh-sticky-dropdown_btn" @click="open = !open" aria-haspopup="true"
+                :aria-expanded="open.toString()">
+                <span class="me-1">{% trans "Columns" %}</span>
+                <ion-icon name="ellipsis-vertical-sharp" role="img" class="md hydrated"
+                    aria-label="ellipsis vertical sharp"></ion-icon>
+            </button>
+            <div class="oh-dropdown__menu oh-sticky-table_dropdown" x-show="open" @click.outside="open = false">
+                <ul class="oh-dropdown__items" id="payslipCells"></ul>
             </div>
         </div>
     </div>
-    <!-- end of column toggle -->
-    <div id="payslip-column-table" data-table-name="payslip_column_tab">
-        <div class="oh-sticky-table">
-            <div class="oh-sticky-table__table oh-table--sortable">
-                <div class="oh-sticky-table__thead">
-                    <div class="oh-sticky-table__tr">
-                        <div class="oh-sticky-table__th" style="width:10px;">
-                            <div class="centered-div">
-                                <input type="checkbox" class="all-payslip oh-input oh-input__checkbox" id="Allpayslip"
-                                    title="{% trans 'Select All' %}" />
-                            </div>
+</div>
+<div id="payslip-column-table" data-table-name="payslip_column_tab">
+    <div class="oh-sticky-table">
+        <div class="oh-sticky-table__table oh-table--sortable">
+            <div class="oh-sticky-table__thead">
+                <div class="oh-sticky-table__tr">
+                    <div class="oh-sticky-table__th" style="width:10px;">
+                        <div class="centered-div">
+                            <input type="checkbox" class="all-payslip oh-input oh-input__checkbox" id="Allpayslip"
+                                title="{% trans 'Select All' %}" />
                         </div>
-                        <div class="oh-sticky-table__th {% if request.sort_option.order == '-employee_id' %}arrow-up {% elif request.sort_option.order == 'employee_id' %}arrow-down {% else %}arrow-up-down {% endif %}"
-                            hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=employee_id" hx-target="#payslips-table">{% trans "Employee" %}</div>
-                        <div data-cell-index="1" data-cell-title='{% trans "Start Date" %}'
-                            class="oh-sticky-table__th {% if request.sort_option.order == '-start_date' %}arrow-up {% elif request.sort_option.order == 'start_date' %}arrow-down {% else %}arrow-up-down {% endif %}"
-                            hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=start_date" hx-target="#payslips-table">{% trans "Start Date" %}</div>
-                        <div data-cell-index="2" data-cell-title='{% trans "End Date" %}'
-                            class="oh-sticky-table__th {% if request.sort_option.order == '-end_date' %}arrow-up {% elif request.sort_option.order == 'end_date' %}arrow-down {% else %}arrow-up-down {% endif %}"
-                            hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=end_date" hx-target="#payslips-table">{% trans "End Date" %}</div>
-                        <div data-cell-index="4" data-cell-title='{% trans "Batch" %}' class="oh-sticky-table__th">{% trans "Batch" %}</div>
-                        <div data-cell-index="5" data-cell-title='{% trans "Gross Pay" %}'
-                            class="oh-sticky-table__th {% if request.sort_option.order == '-gross_pay' %}arrow-up {% elif request.sort_option.order == 'gross_pay' %}arrow-down {% else %}arrow-up-down {% endif %}"
-                            hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=gross_pay" hx-target="#payslips-table">{% trans "Gross Pay" %}</div>
-                        <div data-cell-index="6" data-cell-title='{% trans "Deduction" %}'
-                            class="oh-sticky-table__th {% if request.sort_option.order == '-deduction' %}arrow-up {% elif request.sort_option.order == 'deduction' %}arrow-down {% else %}arrow-up-down {% endif %}"
-                            hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=deduction" hx-target="#payslips-table">{% trans "Deduction" %}</div>
-                        <div data-cell-index="7" data-cell-title='{% trans "Net Pay" %}'
-                            class="oh-sticky-table__th {% if request.sort_option.order == '-net_pay' %}arrow-up {% elif request.sort_option.order == 'net_pay' %}arrow-down {% else %}arrow-up-down {% endif %}"
-                            hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=net_pay" hx-target="#payslips-table">{% trans "Net Pay" %}</div>
-                        <div data-cell-index="3" data-cell-title='{% trans "Status" %}' class="oh-sticky-table__th">{% trans "Status" %}</div>
-                        <div class="oh-sticky-table__th oh-sticky-table__right" style="width: 251px !important;">{% trans "Actions" %}</div>
                     </div>
-                </div>
-                <div class="oh-sticky-table__tbody">
-                    {% for payslip in payslips %}
-                        <a class="oh-sticky-table__tr" draggable="true" href="{% url 'view-created-payslip' payslip.id %}"
-                            style="text-decoration: none;">
-                            <div class="oh-sticky-table__sd {% if payslip.status == "review_ongoing" %}row-status--orange {% elif payslip.status == "confirmed" %} row-status--blue {% elif payslip.status == "paid" %} row-status--yellow {% elif payslip.status == "draft" %} row-status--gray{% endif %}">
-                                <div class="centered-div">
-                                    <input type="checkbox" id="{{payslip.id}}" value="{{payslip.id}}"
-                                        onchange="highlightRow($(this))"
-                                        class="oh-input payslip-checkbox oh-input__checkbox all-payslip-row" />
-                                </div>
-                            </div>
-                            <div class="oh-sticky-table__td">
-                                <div class="oh-profile oh-profile--md">
-                                    <div class="oh-profile__avatar mr-1">
-                                        <img src="{{payslip.employee_id.get_avatar}}" class="oh-profile__image"
-                                            alt="Mary Magdalene" />
-                                    </div>
-                                    <span class="oh-profile__name oh-text--dark">{{payslip.employee_id}}</span>
-                                </div>
-                            </div>
-                            <div data-cell-index="1" class="oh-sticky-table__td dateformat_changer">
-                                {{payslip.start_date}}
-                            </div>
-                            <div data-cell-index="2" class="oh-sticky-table__td dateformat_changer">
-                                {{payslip.end_date}}
-                            </div>
-                            <div data-cell-index="4" class="oh-sticky-table__td">
-                                {{payslip.group_name}}
-                            </div>
-                            <div data-cell-index="5" class="oh-sticky-table__td">
-                                {{payslip.gross_pay|floatformat:2|currency_symbol_position}}
-                            </div>
-                            <div data-cell-index="6" class="oh-sticky-table__td">
-                                {{payslip.deduction|floatformat:2|currency_symbol_position}}
-                            </div>
-                            <div data-cell-index="7" class="oh-sticky-table__td">
-                                {{payslip.net_pay|floatformat:2|currency_symbol_position}}
-                            </div>
-                            {% if perms.payroll.change_payslip %}
-                                <div data-cell-index="3" class="oh-sticky-table__td" onclick="event.preventDefault();">
-                                    <select name="status" data-instance-id="{{payslip.id}}" hx-trigger="change"
-                                        hx-post="{% url 'payslip-status-update' payslip.id %}" hx-target="#payslips-table"
-                                        hx-vals='{"view":"table"}'
-                                        style="color: hsl(0,0%,11%); background-color: transparent; border: none; height: 100%; border: 1px solid transparent;">
-                                        {% for opt in payslip.status_choices %}
-                                            <option value="{{opt.0}}" {% if opt.0 == payslip.status %}selected{% endif %}>{{opt.1}}
-                                            </option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                            {% else %}
-                                <div data-cell-index="3" class="oh-sticky-table__td">
-                                    {{payslip.get_status_display}}
-                                </div>
-                            {% endif %}
-                            <div class="oh-sticky-table__td oh-sticky-table__right" style="width: 251px !important;">
-                                <div class="oh-btn-group">
-                                    <form action="{% url 'view-payslip-pdf' payslip.id %}" method='post' class="w-100">
-                                        {% csrf_token %}
-                                        <button type='submit' title="{% trans 'Download' %}"
-                                            class="oh-btn oh-btn--light-bkg w-100"> <ion-icon
-                                                name="download"></ion-icon></button>
-                                    </form>
-                                    {% if perms.payroll.add_payslip %}
-                                        <button hx-confirm="{% trans 'Do you want to send the payslip by mail?' %}"
-                                            hx-get="{% url 'send-slip' %}?id={{payslip.id}}" hx-target="#payslips-table"
-                                            title="{% trans 'Send via mail' %}" type="button" {% if payslip.sent_to_employee %}class="oh-btn sent-to-employee w-50" {% else %}class="oh-btn oh-btn--light-bkg w-50" {% endif %}>
-                                            <ion-icon name="mail-outline"></ion-icon>
-                                        </button>
-                                    {% endif %}
-                                    {% if perms.payroll.delete_payslip %}
-                                        <button hx-confirm="{% trans 'Are you sure you want to delete this payslip?' %}"
-                                            hx-post="{% url 'delete-payslip' payslip.id %}" hx-target="#payslips-table"
-                                            class="oh-btn oh-btn--danger-outline oh-btn--light-bkg w-50"
-                                            title="{% trans 'Remove' %}">
-                                            <ion-icon name="trash-outline"></ion-icon>
-                                        </button>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </a>
-                    {% endfor %}
+                    <div data-cell-index="0" data-cell-title='{% trans "Employee" %}'
+                        class="oh-sticky-table__th {% if request.sort_option.order == '-employee_id' %}arrow-up {% elif request.sort_option.order == 'employee_id' %}arrow-down {% else %}arrow-up-down {% endif %}"
+                        hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=employee_id" hx-target="#payslips-table">{% trans "Employee" %}
+                    </div>
+                    <div data-cell-index="1" data-cell-title='{% trans "Department" %}' class="oh-sticky-table__th">{% trans "Department" %}</div>
+                    <div data-cell-index="2" data-cell-title='{% trans "Basic Pay" %}' class="oh-sticky-table__th">{% trans "Basic Pay" %}</div>
+                    <div data-cell-index="3" data-cell-title='{% trans "Housing Allowance" %}' class="oh-sticky-table__th">{% trans "Housing Allowance" %}</div>
+                    <div data-cell-index="4" data-cell-title='{% trans "Transport Allowance" %}' class="oh-sticky-table__th">{% trans "Transport Allowance" %}</div>
+                    <div data-cell-index="5" data-cell-title='{% trans "Other Allowance" %}' class="oh-sticky-table__th">{% trans "Other Allowance" %}</div>
+                    <div data-cell-index="6" data-cell-title='{% trans "Gross Pay" %}' class="oh-sticky-table__th">{% trans "Gross Salary" %}</div>
+                    <div data-cell-index="7" data-cell-title='{% trans "Total Paid Days" %}' class="oh-sticky-table__th">
+                        {% trans "Total Paid Days" %}</div>
+                    <div data-cell-index="8" data-cell-title='{% trans "LOP" %}' class="oh-sticky-table__th">{% trans "LOP" %}</div>
+                    <div data-cell-index="9" data-cell-title='{% trans "Salary Advance Loan Recovery" %}' class="oh-sticky-table__th">{% trans "Salary Advance Loan Recovery" %}</div>
+                    <div data-cell-index="10" data-cell-title='{% trans "Deduction" %}' class="oh-sticky-table__th">{% trans "Deduction" %}</div>
+                    <div data-cell-index="11" data-cell-title='{% trans "Overtime" %}' class="oh-sticky-table__th">{% trans "Overtime" %}</div>
+                    <div data-cell-index="12" data-cell-title='{% trans "Salary Advance" %}' class="oh-sticky-table__th">{% trans "Salary Advance" %}</div>
+                    <div data-cell-index="13" data-cell-title='{% trans "Bonus" %}' class="oh-sticky-table__th">{% trans "Bonus" %}</div>
+                    <div data-cell-index="14" data-cell-title='{% trans "Net Pay" %}' class="oh-sticky-table__th">{% trans "Net Pay" %}</div>
+                    <div data-cell-index="15" data-cell-title='{% trans "Start Date" %}'
+                        class="oh-sticky-table__th {% if request.sort_option.order == '-start_date' %}arrow-up {% elif request.sort_option.order == 'start_date' %}arrow-down {% else %}arrow-up-down {% endif %}"
+                        hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=start_date" hx-target="#payslips-table">{% trans "Start Date" %}</div>
+                    <div data-cell-index="16" data-cell-title='{% trans "End Date" %}'
+                        class="oh-sticky-table__th {% if request.sort_option.order == '-end_date' %}arrow-up {% elif request.sort_option.order == 'end_date' %}arrow-down {% else %}arrow-up-down {% endif %}"
+                        hx-get="{% url 'filter-payslip' %}?{{pd}}&sortby=end_date" hx-target="#payslips-table">{% trans "End Date" %}</div>
+                    <div data-cell-index="17" data-cell-title='{% trans "Status" %}' class="oh-sticky-table__th">{% trans "Status" %}</div>
+                    <div class="oh-sticky-table__th oh-sticky-table__right" style="width: 251px !important;">{% trans "Actions" %}</div>
                 </div>
             </div>
-        </div>
-        <div class="oh-pagination">
-            <span class="oh-pagination__page">
-                {% trans "Page" %} {{ payslips.number }} {% trans "of" %} {{ payslips.paginator.num_pages }}.
-            </span>
-            <nav class="oh-pagination__nav">
-                <div class="oh-pagination__input-container me-3">
-                    <span class="oh-pagination__label me-1">{% trans "Page" %}</span>
-                    <input type="number" name="page" class="oh-pagination__input" value="{{payslips.number}}"
-                        hx-get="{% url 'filter-payslip' %}?{{pd}}" hx-target="#payslips-table" min="1" />
-                    <span class="oh-pagination__label">{% trans "of" %} {{payslips.paginator.num_pages}}</span>
+            <div class="oh-sticky-table__tbody">
+                {% for payslip in payslips %}
+                <form class="oh-sticky-table__tr payslip-inline-row" draggable="true" style="text-decoration: none;"
+                    hx-post="{% url 'payslip-inline-edit' payslip.id %}" 
+                    hx-target="this" 
+                    hx-swap="outerHTML"
+                    onsubmit="event.stopPropagation();"
+                    data-payslip-id="{{payslip.id}}"
+                    data-is-imported="{% if payslip.pay_head_data.is_imported %}true{% else %}false{% endif %}"
+                    data-start-date="{{payslip.start_date|date:'Y-m-d'}}"
+                    data-end-date="{{payslip.end_date|date:'Y-m-d'}}"
+                    data-monthly-basic="{% if payslip.pay_head_data.monthly_basic_pay %}{{ payslip.pay_head_data.monthly_basic_pay }}{% elif payslip.pay_head_data|get_key_value:'monthly_basic_pay' %}{{ payslip.pay_head_data|get_key_value:'monthly_basic_pay' }}{% else %}{{ payslip.contract_wage|default:0 }}{% endif %}"
+                    data-monthly-housing="{% if payslip.pay_head_data.monthly_housing_allowance %}{{ payslip.pay_head_data.monthly_housing_allowance }}{% elif payslip.pay_head_data|get_key_value:'monthly_housing_allowance' %}{{ payslip.pay_head_data|get_key_value:'monthly_housing_allowance' }}{% elif payslip.pay_head_data.housing_allowance is not None %}{{ payslip.pay_head_data.housing_allowance }}{% elif payslip.pay_head_data|get_key_value:'housing_allowance' %}{{ payslip.pay_head_data|get_key_value:'housing_allowance' }}{% else %}{{ payslip.housing_allowance|default:0 }}{% endif %}"
+                    data-monthly-transport="{% if payslip.pay_head_data.monthly_transport_allowance %}{{ payslip.pay_head_data.monthly_transport_allowance }}{% elif payslip.pay_head_data|get_key_value:'monthly_transport_allowance' %}{{ payslip.pay_head_data|get_key_value:'monthly_transport_allowance' }}{% elif payslip.pay_head_data.transport_allowance is not None %}{{ payslip.pay_head_data.transport_allowance }}{% elif payslip.pay_head_data|get_key_value:'transport_allowance' %}{{ payslip.pay_head_data|get_key_value:'transport_allowance' }}{% else %}{{ payslip.transport_allowance|default:0 }}{% endif %}"
+                    data-monthly-other="{% if payslip.pay_head_data.monthly_other_allowance %}{{ payslip.pay_head_data.monthly_other_allowance }}{% elif payslip.pay_head_data|get_key_value:'monthly_other_allowance' %}{{ payslip.pay_head_data|get_key_value:'monthly_other_allowance' }}{% elif payslip.pay_head_data.other_allowance is not None %}{{ payslip.pay_head_data.other_allowance }}{% elif payslip.pay_head_data|get_key_value:'other_allowance' %}{{ payslip.pay_head_data|get_key_value:'other_allowance' }}{% else %}{{ payslip.other_allowance|default:0 }}{% endif %}"
+                    data-contract-wage="{{payslip.contract_wage|default:0}}">
+                    {% csrf_token %}
+                    <div class="oh-sticky-table__sd{% if payslip.status == 'review_ongoing' %} row-status--orange{% elif payslip.status == 'confirmed' %} row-status--blue{% elif payslip.status == 'paid' %} row-status--yellow{% elif payslip.status == 'draft' %} row-status--gray{% endif %}">
+
+                        <div class="centered-div">
+                            <input type="checkbox" id="{{payslip.id}}" value="{{payslip.id}}"
+                                onchange="highlightRow($(this))"
+                                class="oh-input payslip-checkbox oh-input__checkbox all-payslip-row" />
+                        </div>
+                    </div>
+                    <div data-cell-index="0" class="oh-sticky-table__td">
+                        <div class="oh-profile oh-profile--md">
+                            <div class="oh-profile__avatar mr-1">
+                                <img src="{{payslip.employee_id.get_avatar}}" class="oh-profile__image"
+                                    alt="Mary Magdalene" />
+                            </div>
+                            <a href="{% url 'view-created-payslip' payslip.id %}" class="oh-profile__name oh-text--dark"
+                                style="text-decoration: none;" onclick="event.stopPropagation();">
+                                {{payslip.employee_id}}
+                            </a>
+                        </div>
+                    </div>
+                    <div data-cell-index="1" class="oh-sticky-table__td">
+                        {% if payslip.pay_head_data.department %}{{payslip.pay_head_data.department}}{% elif payslip.pay_head_data|get_key_value:'department' %}{{payslip.pay_head_data|get_key_value:'department'}}{% elif payslip.employee_id.employee_work_info and payslip.employee_id.employee_work_info.department_id %}{{payslip.employee_id.employee_work_info.department_id.department}}{% endif %}
+                    </div>
+                    <div data-cell-index="2" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="basic_pay" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.basic_pay is not None %}{{ payslip.pay_head_data.basic_pay|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'basic_pay' %}{{ payslip.pay_head_data|get_key_value:'basic_pay'|floatformat:2 }}{% else %}{{ payslip.basic_pay|default:0|floatformat:2 }}{% endif %}">
+                    </div>
+                    <div data-cell-index="3" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="housing_allowance" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.housing_allowance is not None %}{{ payslip.pay_head_data.housing_allowance|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'housing_allowance' %}{{ payslip.pay_head_data|get_key_value:'housing_allowance'|floatformat:2 }}{% else %}{{ payslip.housing_allowance|default:0|floatformat:2 }}{% endif %}">
+                    </div>
+                    <div data-cell-index="4" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="transport_allowance" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.transport_allowance is not None %}{{ payslip.pay_head_data.transport_allowance|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'transport_allowance' %}{{ payslip.pay_head_data|get_key_value:'transport_allowance'|floatformat:2 }}{% else %}{{ payslip.transport_allowance|default:0|floatformat:2 }}{% endif %}">
+                    </div>
+                    <div data-cell-index="5" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="other_allowance" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.other_allowance is not None %}{{ payslip.pay_head_data.other_allowance|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'other_allowance' %}{{ payslip.pay_head_data|get_key_value:'other_allowance'|floatformat:2 }}{% else %}{{ payslip.other_allowance|default:0|floatformat:2 }}{% endif %}">
+                    </div>
+                    <div data-cell-index="6" class="oh-sticky-table__td calculated-gross-pay" data-payslip-id="{{payslip.id}}" data-initial-value="{% if payslip.pay_head_data.gross_pay is not None %}{{ payslip.pay_head_data.gross_pay }}{% elif payslip.pay_head_data|get_key_value:'gross_pay' %}{{ payslip.pay_head_data|get_key_value:'gross_pay' }}{% else %}{{ payslip.gross_pay|default:0 }}{% endif %}">
+                        {% if payslip.pay_head_data.gross_pay is not None %}{{ payslip.pay_head_data.gross_pay|currency_symbol_position }}{% elif payslip.pay_head_data|get_key_value:'gross_pay' %}{{ payslip.pay_head_data|get_key_value:'gross_pay'|currency_symbol_position }}{% else %}{{ payslip.gross_pay|default:0|currency_symbol_position }}{% endif %}
+                    </div>
+                    <div data-cell-index="7" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-paid-days" name="paid_days" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.calculated_paid_days %}{{ payslip.calculated_paid_days|floatformat:2 }}{% elif payslip.pay_head_data.paid_days is not None %}{{ payslip.pay_head_data.paid_days|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'paid_days' %}{{ payslip.pay_head_data|get_key_value:'paid_days'|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="8" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="loss_of_pay" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.calculated_loss_of_pay %}{{ payslip.calculated_loss_of_pay|floatformat:2 }}{% elif payslip.pay_head_data.loss_of_pay is not None %}{{ payslip.pay_head_data.loss_of_pay|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'loss_of_pay' %}{{ payslip.pay_head_data|get_key_value:'loss_of_pay'|floatformat:2 }}{% elif payslip.pay_head_data.lop is not None %}{{ payslip.pay_head_data.lop|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="9" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="pretax_advanced_salary" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.salary_advance_loan_recovery is not None %}{{ payslip.pay_head_data.salary_advance_loan_recovery|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'salary_advance_loan_recovery' %}{{ payslip.pay_head_data|get_key_value:'salary_advance_loan_recovery'|floatformat:2 }}{% elif payslip.pay_head_data.pretax_deductions|get_amount_by_title:'Advanced Salary' %}{{ payslip.pay_head_data.pretax_deductions|get_amount_by_title:'Advanced Salary'|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="10" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="deduction" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.deduction is not None %}{{ payslip.pay_head_data.deduction|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'deduction' %}{{ payslip.pay_head_data|get_key_value:'deduction'|floatformat:2 }}{% elif payslip.deduction is not None %}{{ payslip.deduction|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="11" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="overtime" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.overtime is not None %}{{ payslip.pay_head_data.overtime|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'overtime' %}{{ payslip.pay_head_data|get_key_value:'overtime'|floatformat:2 }}{% elif payslip.pay_head_data.allowances|get_amount_by_title:'Overtime' %}{{ payslip.pay_head_data.allowances|get_amount_by_title:'Overtime'|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="12" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="allowance_advanced_salary" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.salary_advance is not None %}{{ payslip.pay_head_data.salary_advance|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'salary_advance' %}{{ payslip.pay_head_data|get_key_value:'salary_advance'|floatformat:2 }}{% elif payslip.pay_head_data.allowances|get_amount_by_title:'Advanced Salary' %}{{ payslip.pay_head_data.allowances|get_amount_by_title:'Advanced Salary'|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="13" class="oh-sticky-table__td">
+                        <input type="number" class="oh-input w-100 payslip-calc-input" name="bonus" step="0.01" data-payslip-id="{{payslip.id}}"
+                            value="{% if payslip.pay_head_data.bonus is not None %}{{ payslip.pay_head_data.bonus|floatformat:2 }}{% elif payslip.pay_head_data|get_key_value:'bonus' %}{{ payslip.pay_head_data|get_key_value:'bonus'|floatformat:2 }}{% elif payslip.pay_head_data.allowances|get_amount_by_title:'Bonus' %}{{ payslip.pay_head_data.allowances|get_amount_by_title:'Bonus'|floatformat:2 }}{% else %}0.00{% endif %}">
+                    </div>
+                    <div data-cell-index="14" class="oh-sticky-table__td calculated-net-pay" data-payslip-id="{{payslip.id}}" data-initial-value="{% if payslip.pay_head_data.net_pay is not None %}{{ payslip.pay_head_data.net_pay }}{% elif payslip.pay_head_data|get_key_value:'net_pay' %}{{ payslip.pay_head_data|get_key_value:'net_pay' }}{% else %}{{ payslip.net_pay|default:0 }}{% endif %}">
+                        {% if payslip.pay_head_data.net_pay is not None %}{{ payslip.pay_head_data.net_pay|currency_symbol_position }}{% elif payslip.pay_head_data|get_key_value:'net_pay' %}{{ payslip.pay_head_data|get_key_value:'net_pay'|currency_symbol_position }}{% else %}{{ payslip.net_pay|default:0|currency_symbol_position }}{% endif %}
+                    </div>
+                    <div data-cell-index="15" class="oh-sticky-table__td dateformat_changer">
+                        {{payslip.start_date}}
+                    </div>
+                    <div data-cell-index="16" class="oh-sticky-table__td dateformat_changer">
+                        {{payslip.end_date}}
+                    </div>
+                {% if perms.payroll.change_payslip %}
+                <div data-cell-index="17" class="oh-sticky-table__td" onclick="event.preventDefault();">
+                    <select name="status" data-instance-id="{{payslip.id}}" hx-trigger="change"
+                        hx-post="{% url 'payslip-status-update' payslip.id %}" hx-target="#payslips-table" hx-vals='{"view":"table"}'
+                        style="color: hsl(0,0%,11%); background-color: transparent; border: none; height: 100%; border: 1px solid transparent;">
+                        {% for opt in payslip.status_choices %}
+                        <option value="{{opt.0}}" {% if opt.0 == payslip.status %}selected{% endif %}>{{opt.1}}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <ul class="oh-pagination__items">
-                    {% if payslips.has_previous %}
-                        <li class="oh-pagination__item oh-pagination__item--wide">
-                            <a hx-target='#payslips-table' hx-get="{% url 'filter-payslip' %}?{{pd}}&page=1"
-                                class="oh-pagination__link">{% trans "First" %}</a>
-                        </li>
-                        <li class="oh-pagination__item oh-pagination__item--wide">
-                            <a hx-target='#payslips-table'
-                                hx-get="{% url 'filter-payslip' %}?{{pd}}&page={{ payslips.previous_page_number }}"
-                                class="oh-pagination__link">{% trans "Previous" %}</a>
-                        </li>
+                {% else %}
+                    <div data-cell-index="17" class="oh-sticky-table__td">
+                        {{payslip.get_status_display}}
+                    </div>
                     {% endif %}
-                    {% if payslips.has_next %}
-                        <li class="oh-pagination__item oh-pagination__item--wide">
-                            <a hx-target='#payslips-table'
-                                hx-get="{% url 'filter-payslip' %}?{{pd}}&page={{ payslips.next_page_number }}"
-                                class="oh-pagination__link">{% trans "Next" %}</a>
-                        </li>
-                        <li class="oh-pagination__item oh-pagination__item--wide">
-                            <a hx-target='#payslips-table'
-                                hx-get="{% url 'filter-payslip' %}?{{pd}}&page={{ payslips.paginator.num_pages }}"
-                                class="oh-pagination__link">{% trans "Last" %}</a>
-                        </li>
-                    {% endif %}
-                </ul>
-            </nav>
+                    <div class="oh-sticky-table__td oh-sticky-table__right" style="width: 251px !important;">
+                        <div class="oh-btn-group">
+                            <button type="submit" class="oh-btn oh-btn--light-bkg w-100" 
+                                    data-toggle="tooltip" data-placement="top" title="Save">
+                                <ion-icon name="save-outline"></ion-icon>
+                            </button>
+                            <button type='submit' form="download-payslip-{{payslip.id}}" title="{% trans 'Download' %}"
+                                class="oh-btn oh-btn--light-bkg w-100" onclick="event.stopPropagation();">
+                                <ion-icon name="download"></ion-icon>
+                            </button>
+                            {% if perms.payroll.add_payslip %}
+                            {% with send_btn_class=payslip.sent_to_employee|yesno:"oh-btn sent-to-employee w-50,oh-btn oh-btn--light-bkg w-50" %}
+                            <button hx-confirm="{% trans 'Do you want to send the payslip by mail?' %}"
+                                hx-get="{% url 'send-slip' %}?id={{payslip.id}}" hx-target="#payslips-table"
+                                title="{% trans 'Send via mail' %}" type="button" class="{{ send_btn_class }}">
+                                <ion-icon name="mail-outline"></ion-icon>
+                            </button>
+                            {% endwith %}
+                            {% endif %}
+                            {% if perms.payroll.delete_payslip %}
+                            <button hx-confirm="{% trans 'Are you sure you want to delete this payslip?' %}"
+                                hx-post="{% url 'delete-payslip' payslip.id %}" hx-target="#payslips-table" hx-vals='{"view":"table"}'
+                                class="oh-btn oh-btn--danger-outline oh-btn--light-bkg w-50"
+                                title="{% trans 'Remove' %}" onclick="event.stopPropagation();">
+                                <ion-icon name="trash-outline"></ion-icon>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </form>
+                <form id="download-payslip-{{payslip.id}}" action="{% url 'view-payslip-pdf' payslip.id %}" method="post"
+                    class="d-none">
+                    {% csrf_token %}
+                </form>
+                {% endfor %}
+            </div>
         </div>
     </div>
-{% else %}
-    <!-- start of empty page -->
-    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%;">
-        <img style="width: 150px; height: 150px" src="{% static 'images/ui/no-results.png' %}" class="oh-404__image mb-4" />
-        <h5 class="oh-404__subtitle">
-            {% trans "No search result found!" %}
-        </h5>
+    <div class="oh-pagination">
+        <span class="oh-pagination__page">
+            {% trans "Page" %} {{ payslips.number }} {% trans "of" %} {{ payslips.paginator.num_pages }}.
+        </span>
+        <nav class="oh-pagination__nav">
+            <div class="oh-pagination__input-container me-3">
+                <span class="oh-pagination__label me-1">{% trans "Page" %}</span>
+                <input type="number" name="page" class="oh-pagination__input" value="{{payslips.number}}"
+                    hx-get="{% url 'filter-payslip' %}?{{pd}}" hx-target="#payslips-table" min="1" />
+                <span class="oh-pagination__label">{% trans "of" %} {{payslips.paginator.num_pages}}</span>
+            </div>
+            <ul class="oh-pagination__items">
+                {% if payslips.has_previous %}
+                <li class="oh-pagination__item oh-pagination__item--wide">
+                    <a hx-target='#payslips-table' hx-get="{% url 'filter-payslip' %}?{{pd}}&page=1"
+                        class="oh-pagination__link">{% trans "First" %}</a>
+                </li>
+                <li class="oh-pagination__item oh-pagination__item--wide">
+                    <a hx-target='#payslips-table'
+                        hx-get="{% url 'filter-payslip' %}?{{pd}}&page={{ payslips.previous_page_number }}"
+                        class="oh-pagination__link">{% trans "Previous" %}</a>
+                </li>
+                {% endif %}
+                {% if payslips.has_next %}
+                <li class="oh-pagination__item oh-pagination__item--wide">
+                    <a hx-target='#payslips-table'
+                        hx-get="{% url 'filter-payslip' %}?{{pd}}&page={{ payslips.next_page_number }}"
+                        class="oh-pagination__link">{% trans "Next" %}</a>
+                </li>
+                <li class="oh-pagination__item oh-pagination__item--wide">
+                    <a hx-target='#payslips-table'
+                        hx-get="{% url 'filter-payslip' %}?{{pd}}&page={{ payslips.paginator.num_pages }}"
+                        class="oh-pagination__link">{% trans "Last" %}</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
     </div>
-    <!-- end of empty page -->
+</div>
+{% else %}
+<div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%;">
+    <img style="width: 150px; height: 150px" src="{% static 'images/ui/no-results.png' %}" class="oh-404__image mb-4" />
+    <h5 class="oh-404__subtitle">
+        {% trans "No search result found!" %}
+    </h5>
+</div>
 {% endif %}
 <script src="{% static 'payroll/action.js' %}"></script>
 <script>
@@ -245,10 +324,421 @@
             addingPayslipIds();
         });
     });
-    // toggle columns //
-    toggleColumns("payslip-column-table", "payslipCells")
-    localStoragepayslipCells = localStorage.getItem("payslip_column_tab")
-    if (!localStoragepayslipCells) {
-        $("#payslipCells").find("[type=checkbox]").prop("checked", true)
+    // Initialize columns and calculations - run once on page load
+    function initializePayslipTable() {
+        // Toggle columns
+        if (typeof toggleColumns === 'function') {
+            toggleColumns("payslip-column-table", "payslipCells");
+        }
+        
+        // Calculate amounts for all payslips on page load
+        $('.payslip-inline-row').each(function() {
+            const payslipId = $(this).find('[data-payslip-id]').first().data('payslip-id');
+            if (payslipId) {
+                calculatePayslipAmounts(payslipId);
+            }
+        });
+        
+        // Initialize monthly values for all payslips
+        $('.payslip-paid-days').each(function() {
+            const originalValue = parseFloat($(this).val()) || 0;
+            $(this).data('original-paid-days', originalValue);
+            
+            // Calculate and store monthly values if not already stored
+            const payslipId = $(this).data('payslip-id');
+            const row = $(`.payslip-inline-row[data-payslip-id="${payslipId}"]`);
+            if (row.length && originalValue > 0) {
+                const isImported = row.data('is-imported') === true || row.data('is-imported') === 'true';
+                const startDateStr = row.data('start-date');
+                
+                let calendarMonthDays = 0;
+                let daysInPeriod = 0;
+                
+                if (startDateStr) {
+                    const startDate = new Date(startDateStr);
+                    const endDateStr = row.data('end-date');
+                    
+                    if (endDateStr) {
+                        const endDate = new Date(endDateStr);
+                        daysInPeriod = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+                    }
+                    
+                    if (isImported) {
+                        const year = startDate.getFullYear();
+                        const month = startDate.getMonth() + 1;
+                        calendarMonthDays = new Date(year, month, 0).getDate();
+                    }
+                }
+                
+                // Calculate monthly values from current values if not stored
+                const currentHousing = parseFloat(row.find('input[name="housing_allowance"]').val()) || 0;
+                const currentTransport = parseFloat(row.find('input[name="transport_allowance"]').val()) || 0;
+                const currentOther = parseFloat(row.find('input[name="other_allowance"]').val()) || 0;
+                
+                let monthlyHousing = parseFloat(row.data('monthly-housing')) || 0;
+                let monthlyTransport = parseFloat(row.data('monthly-transport')) || 0;
+                let monthlyOther = parseFloat(row.data('monthly-other')) || 0;
+                
+                // If monthly values are 0 or not stored, calculate from current values
+                if (monthlyHousing === 0 && currentHousing > 0 && originalValue > 0) {
+                    if (isImported && calendarMonthDays > 0) {
+                        monthlyHousing = (currentHousing / originalValue) * calendarMonthDays;
+                    } else if (!isImported && daysInPeriod > 0) {
+                        monthlyHousing = (currentHousing / originalValue) * daysInPeriod;
+                    }
+                    if (monthlyHousing > 0) {
+                        row.data('monthly-housing', monthlyHousing);
+                    }
+                }
+                
+                if (monthlyTransport === 0 && currentTransport > 0 && originalValue > 0) {
+                    if (isImported && calendarMonthDays > 0) {
+                        monthlyTransport = (currentTransport / originalValue) * calendarMonthDays;
+                    } else if (!isImported && daysInPeriod > 0) {
+                        monthlyTransport = (currentTransport / originalValue) * daysInPeriod;
+                    }
+                    if (monthlyTransport > 0) {
+                        row.data('monthly-transport', monthlyTransport);
+                    }
+                }
+                
+                if (monthlyOther === 0 && currentOther > 0 && originalValue > 0) {
+                    if (isImported && calendarMonthDays > 0) {
+                        monthlyOther = (currentOther / originalValue) * calendarMonthDays;
+                    } else if (!isImported && daysInPeriod > 0) {
+                        monthlyOther = (currentOther / originalValue) * daysInPeriod;
+                    }
+                    if (monthlyOther > 0) {
+                        row.data('monthly-other', monthlyOther);
+                    }
+                }
+            }
+        });
     }
+    
+    // Initialize on page load
+    initializePayslipTable();
+    
+    // Re-run initialization after HTMX swaps to restore column state and recalculate
+    var htmxInitialized = false;
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        // Only restore if the target is the payslips table or contains the payslip table
+        var target = evt.detail.target;
+        if (target && (target.id === 'payslips-table' || $(target).find('#payslip-column-table').length > 0 || $(target).is('#payslips-table'))) {
+            // Prevent multiple initializations
+            if (htmxInitialized) {
+                return;
+            }
+            htmxInitialized = true;
+            
+            // Wait a moment for the DOM to be fully updated, then re-run initialization
+            setTimeout(function() {
+                if ($('#payslip-column-table').length > 0) {
+                    initializePayslipTable();
+                    htmxInitialized = false; // Reset flag after initialization
+                }
+            }, 150);
+        }
+    });
+    
+    // Function to format currency value - extract just the numeric value and apply currency formatting
+    function formatCurrency(value, cellElement) {
+        // Get currency symbol and position from a sample cell or use defaults
+        let currencySymbol = 'AED';
+        let position = 'postfix'; // default
+        
+        // Try to extract from existing text in the cell
+        const existingText = cellElement.text().trim();
+        
+        // Extract just the numeric value (remove all non-numeric except decimal point)
+        const numericValue = parseFloat(value) || 0;
+        const formattedNumber = numericValue.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        
+        // If existing text has currency, extract it
+        if (existingText) {
+            // Match currency patterns like "AED", "$", "USD", etc.
+            const currencyMatch = existingText.match(/([A-Z$€£¥]{1,5})/);
+            if (currencyMatch) {
+                currencySymbol = currencyMatch[1];
+            }
+            
+            // Check position - if currency is at the start, it's prefix
+            if (existingText.trim().indexOf(currencySymbol) === 0) {
+                position = 'prefix';
+            }
+        }
+        
+        // Format based on position
+        if (position === 'prefix') {
+            return currencySymbol + ' ' + formattedNumber;
+        } else {
+            return formattedNumber + ' ' + currencySymbol;
+        }
+    }
+    
+    // Function to calculate Gross Pay and Net Pay for a payslip row
+    function calculatePayslipAmounts(payslipId) {
+        const row = $(`.payslip-inline-row:has([data-payslip-id="${payslipId}"])`);
+        
+        // Get input values, defaulting to 0 if empty or invalid
+        const getValue = (name) => {
+            const input = row.find(`input[name="${name}"]`);
+            const val = parseFloat(input.val()) || 0;
+            return isNaN(val) ? 0 : val;
+        };
+        
+        const basicPay = getValue('basic_pay');
+        const housingAllowance = getValue('housing_allowance');
+        const transportAllowance = getValue('transport_allowance');
+        const otherAllowance = getValue('other_allowance');
+        const overtime = getValue('overtime');
+        const salaryAdvance = getValue('allowance_advanced_salary');
+        const bonus = getValue('bonus');
+        const lossOfPay = getValue('loss_of_pay');
+        const salaryAdvanceLoanRecovery = getValue('pretax_advanced_salary');
+        const deduction = getValue('deduction');
+        
+        // Gross Pay = Basic Pay + Housing Allowance + Transport Allowance + Other Allowance
+        // (EXCLUDING Overtime, Salary Advance, Bonus)
+        const grossPay = basicPay + housingAllowance + transportAllowance + otherAllowance;
+        
+        // Net Pay = Gross Pay + Overtime + Salary Advance + Bonus - (Loss of Pay + Salary Advance Loan Recovery + Deduction)
+        const totalDeductions = lossOfPay + salaryAdvanceLoanRecovery + deduction;
+        const netPay = grossPay + overtime + salaryAdvance + bonus - totalDeductions;
+        
+        // Update Gross Pay display
+        const grossPayCell = $(`.calculated-gross-pay[data-payslip-id="${payslipId}"]`);
+        if (grossPayCell.length) {
+            grossPayCell.text(formatCurrency(grossPay, grossPayCell));
+        }
+        
+        // Update Net Pay display
+        const netPayCell = $(`.calculated-net-pay[data-payslip-id="${payslipId}"]`);
+        if (netPayCell.length) {
+            netPayCell.text(formatCurrency(netPay, netPayCell));
+        }
+    }
+    
+    // Recalculate when any input field changes (using event delegation for dynamic content)
+    $(document).on('input change', '.payslip-calc-input', function() {
+        const payslipId = $(this).data('payslip-id');
+        if (payslipId) {
+            calculatePayslipAmounts(payslipId);
+        }
+    });
+    
+    // Function to recalculate allowances based on paid_days (same formula as basic_pay)
+    function recalculateAllowancesBasedOnDays(payslipId) {
+        const row = $(`.payslip-inline-row[data-payslip-id="${payslipId}"]`);
+        if (!row.length) return;
+        
+        const paidDaysInput = row.find(`input[name="paid_days"][data-payslip-id="${payslipId}"]`);
+        const paidDays = parseFloat(paidDaysInput.val()) || 0;
+        
+        if (paidDays < 0) return; // Invalid paid days
+        
+        const isImported = row.data('is-imported') === true || row.data('is-imported') === 'true';
+        const startDateStr = row.data('start-date');
+        const endDateStr = row.data('end-date');
+        
+        let daysInPeriod = 0;
+        let calendarMonthDays = 0;
+        
+        if (startDateStr && endDateStr) {
+            const startDate = new Date(startDateStr);
+            const endDate = new Date(endDateStr);
+            daysInPeriod = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            
+            if (isImported && startDateStr) {
+                // Calculate calendar month days
+                const year = startDate.getFullYear();
+                const month = startDate.getMonth() + 1; // getMonth() returns 0-11
+                calendarMonthDays = new Date(year, month, 0).getDate(); // Last day of month
+            }
+        }
+        
+        if (daysInPeriod <= 0 && !isImported) return; // Need valid days_in_period for non-imported
+        if (calendarMonthDays <= 0 && isImported) return; // Need valid calendar_month_days for imported
+        
+        // Get monthly values from data attributes (calculated on page load)
+        let monthlyBasicPay = parseFloat(row.data('monthly-basic-pay')) || 0;
+        let monthlyHousing = parseFloat(row.data('monthly-housing')) || 0;
+        let monthlyTransport = parseFloat(row.data('monthly-transport')) || 0;
+        let monthlyOther = parseFloat(row.data('monthly-other')) || 0;
+        
+        // If monthly values are still 0, try to calculate from current values and original paid_days
+        if (monthlyBasicPay === 0) {
+            const currentBasicPay = parseFloat(row.find('input[name="basic_pay"]').val()) || 0;
+            const originalPaidDays = parseFloat(row.find('input[name="paid_days"]').data('original-paid-days')) || paidDays;
+            if (originalPaidDays > 0 && currentBasicPay > 0) {
+                if (isImported && calendarMonthDays > 0) {
+                    monthlyBasicPay = (currentBasicPay / originalPaidDays) * calendarMonthDays;
+                } else if (!isImported && daysInPeriod > 0) {
+                    monthlyBasicPay = (currentBasicPay / originalPaidDays) * daysInPeriod;
+                }
+                // Store for future use
+                if (monthlyBasicPay > 0) {
+                    row.data('monthly-basic-pay', monthlyBasicPay);
+                }
+            }
+        }
+        
+        if (monthlyHousing === 0) {
+            const currentHousing = parseFloat(row.find('input[name="housing_allowance"]').val()) || 0;
+            const originalPaidDays = parseFloat(row.find('input[name="paid_days"]').data('original-paid-days')) || paidDays;
+            if (originalPaidDays > 0 && currentHousing > 0) {
+                if (isImported && calendarMonthDays > 0) {
+                    monthlyHousing = (currentHousing / originalPaidDays) * calendarMonthDays;
+                } else if (!isImported && daysInPeriod > 0) {
+                    monthlyHousing = (currentHousing / originalPaidDays) * daysInPeriod;
+                }
+                // Store for future use
+                if (monthlyHousing > 0) {
+                    row.data('monthly-housing', monthlyHousing);
+                }
+            }
+        }
+        
+        if (monthlyTransport === 0) {
+            const currentTransport = parseFloat(row.find('input[name="transport_allowance"]').val()) || 0;
+            const originalPaidDays = parseFloat(row.find('input[name="paid_days"]').data('original-paid-days')) || paidDays;
+            if (originalPaidDays > 0 && currentTransport > 0) {
+                if (isImported && calendarMonthDays > 0) {
+                    monthlyTransport = (currentTransport / originalPaidDays) * calendarMonthDays;
+                } else if (!isImported && daysInPeriod > 0) {
+                    monthlyTransport = (currentTransport / originalPaidDays) * daysInPeriod;
+                }
+                // Store for future use
+                if (monthlyTransport > 0) {
+                    row.data('monthly-transport', monthlyTransport);
+                }
+            }
+        }
+        
+        if (monthlyOther === 0) {
+            const currentOther = parseFloat(row.find('input[name="other_allowance"]').val()) || 0;
+            const originalPaidDays = parseFloat(row.find('input[name="paid_days"]').data('original-paid-days')) || paidDays;
+            if (originalPaidDays > 0 && currentOther > 0) {
+                if (isImported && calendarMonthDays > 0) {
+                    monthlyOther = (currentOther / originalPaidDays) * calendarMonthDays;
+                } else if (!isImported && daysInPeriod > 0) {
+                    monthlyOther = (currentOther / originalPaidDays) * daysInPeriod;
+                }
+                // Store for future use
+                if (monthlyOther > 0) {
+                    row.data('monthly-other', monthlyOther);
+                }
+            }
+        }
+        
+        // Recalculate allowances based on paid_days
+        if (isImported && calendarMonthDays > 0) {
+            // For imported: Allowance = (Monthly Allowance / Calendar Month Days) × Paid Days
+            if (monthlyBasicPay > 0) {
+                const perDayBasicPay = monthlyBasicPay / calendarMonthDays;
+                const recalculatedBasicPay = Math.round((perDayBasicPay * paidDays) * 100) / 100;
+                row.find('input[name="basic_pay"]').val(recalculatedBasicPay.toFixed(2));
+            }
+            
+            if (monthlyHousing > 0) {
+                const perDayHousing = monthlyHousing / calendarMonthDays;
+                const recalculatedHousing = Math.round((perDayHousing * paidDays) * 100) / 100;
+                row.find('input[name="housing_allowance"]').val(recalculatedHousing.toFixed(2));
+            }
+            
+            if (monthlyTransport > 0) {
+                const perDayTransport = monthlyTransport / calendarMonthDays;
+                const recalculatedTransport = Math.round((perDayTransport * paidDays) * 100) / 100;
+                row.find('input[name="transport_allowance"]').val(recalculatedTransport.toFixed(2));
+            }
+            
+            if (monthlyOther > 0) {
+                const perDayOther = monthlyOther / calendarMonthDays;
+                const recalculatedOther = Math.round((perDayOther * paidDays) * 100) / 100;
+                row.find('input[name="other_allowance"]').val(recalculatedOther.toFixed(2));
+            }
+        } else if (!isImported && daysInPeriod > 0) {
+            // For non-imported: Allowance = (Monthly Allowance / Days in Period) × Paid Days
+            if (monthlyBasicPay > 0) {
+                const perDayBasicPay = monthlyBasicPay / daysInPeriod;
+                const recalculatedBasicPay = Math.round((perDayBasicPay * paidDays) * 100) / 100;
+                row.find('input[name="basic_pay"]').val(recalculatedBasicPay.toFixed(2));
+            }
+            
+            if (monthlyHousing > 0) {
+                const perDayHousing = monthlyHousing / daysInPeriod;
+                const recalculatedHousing = Math.round((perDayHousing * paidDays) * 100) / 100;
+                row.find('input[name="housing_allowance"]').val(recalculatedHousing.toFixed(2));
+            }
+            
+            if (monthlyTransport > 0) {
+                const perDayTransport = monthlyTransport / daysInPeriod;
+                const recalculatedTransport = Math.round((perDayTransport * paidDays) * 100) / 100;
+                row.find('input[name="transport_allowance"]').val(recalculatedTransport.toFixed(2));
+            }
+            
+            if (monthlyOther > 0) {
+                const perDayOther = monthlyOther / daysInPeriod;
+                const recalculatedOther = Math.round((perDayOther * paidDays) * 100) / 100;
+                row.find('input[name="other_allowance"]').val(recalculatedOther.toFixed(2));
+            }
+        }
+        
+        // Trigger recalculation of gross and net pay
+        calculatePayslipAmounts(payslipId);
+    }
+    
+    
+    // Recalculate allowances when paid_days changes
+    $(document).on('input change', '.payslip-paid-days', function() {
+        const payslipId = $(this).data('payslip-id');
+        if (payslipId) {
+            recalculateAllowancesBasedOnDays(payslipId);
+        }
+    });
+    
+    // Listen for success message from HTMX
+    document.body.addEventListener('showMessage', function(evt) {
+        const data = evt.detail;
+        if (data && data.message) {
+            // Map message type to CSS class (error -> danger for consistency with CSS)
+            const typeMap = {
+                'success': 'oh-alert--success',
+                'error': 'oh-alert--danger',
+                'warning': 'oh-alert--warning',
+                'info': 'oh-alert--info'
+            };
+            const alertClass = typeMap[data.type] || typeMap['success'];
+            
+            // Show success message using Horilla's alert system
+            const alertHtml = `
+                <div class="oh-alert-container">
+                    <div class="oh-alert oh-alert--animated ${alertClass}">
+                        ${data.message}
+                    </div>
+                </div>
+            `;
+            // Insert at the top of the page - use body to ensure proper positioning
+            // Since oh-alert-container uses position: fixed, it works from anywhere in DOM
+            const wrapper = document.querySelector('body');
+            if (wrapper) {
+                wrapper.insertAdjacentHTML('afterbegin', alertHtml);
+                
+                // Force a reflow to ensure CSS is applied immediately
+                void wrapper.offsetHeight;
+                
+                // Auto-hide after 3 seconds
+                setTimeout(function() {
+                    const alert = wrapper.querySelector('.oh-alert-container');
+                    if (alert) {
+                        alert.style.transition = 'opacity 0.5s';
+                        alert.style.opacity = '0';
+                        setTimeout(function() {
+                            alert.remove();
+                        }, 500);
+                    }
+                }, 3000);
+            }
+        }
+    });
 </script>

@@ -1,0 +1,1455 @@
+{% extends 'index.html' %} {% load static i18n %} {% block content %}
+
+<style>
+  /* ============================================
+   RESPONSIVE UI UPDATES - MATCHING REFERENCE IMAGE
+   ============================================ */
+
+  /* Base container adjustments */
+  /* .payslip-import-modal {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+} */
+
+  /* .modern-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 1rem;
+} */
+
+  /* Simplified card styling to match reference */
+  .modern-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e5e7eb;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  /* ============================================
+   PAYROLL PERIOD SECTION - COMPACT LAYOUT
+   ============================================ */
+
+  .period-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .period-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .period-icon {
+    width: 20px;
+    height: 20px;
+    color: #6b7280;
+    flex-shrink: 0;
+  }
+
+  .period-title {
+    font-size: 1.25rem !important;
+    font-weight: 650 !important;
+    color: #111827;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .period-subtitle {
+    font-size: 0.8125rem;
+    color: #6b7280;
+    margin-top: 0.125rem;
+  }
+
+  .fiscal-year {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    color: #6b7280;
+    padding: 0.375rem 0.625rem;
+    background: #f9fafb;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+
+  .fiscal-year:hover {
+    background: #f3f4f6;
+  }
+
+  .fiscal-year .icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* CRITICAL FIX: Dropdown wrapper positioning */
+  .dropdown-wrapper {
+    position: relative;
+    width: 100%;
+  }
+
+  /* Dropdown button - matching reference compact design */
+  .dropdown-button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border: 2px solid rgba(107, 114, 128, 0.2);
+    border-radius: 8px;
+    background: #fafafa;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    transition: all 0.2s;
+    min-height: 48px;
+  }
+
+  .dropdown-button:hover {
+    border-color: 1px solid #5e17eb !important;
+    background: #fafafa;
+  }
+
+  .dropdown-button:focus {
+    outline: none;
+    border-color: 1px solid #5e17eb;
+    box-shadow: 0 0 0 3px rgba(6, 95, 70, 0.1);
+  }
+
+  .dropdown-button-content {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+  }
+
+  .dropdown-button-content .icon {
+    width: 18px;
+    height: 18px;
+    color: #6b7280;
+    flex-shrink: 0;
+  }
+
+  .dropdown-button-text {
+    font-weight: 500;
+    color: #111827;
+  }
+
+  .chevron {
+    width: 18px;
+    height: 18px;
+    color: #6b7280;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+
+  .dropdown-button.open .chevron {
+    transform: rotate(180deg);
+  }
+
+  /* CRITICAL FIX: Calendar popup - improved positioning and visibility */
+  .calendar-popup {
+    position: relative;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    right: 0;
+    background: #fafafa;
+    border: 2px solid rgba(107, 114, 128, 0.2);
+    margin-top: 4px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15),
+      0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    padding: 1rem;
+    /* z-index: 9999 !important;  */
+    display: none;
+    max-height: 500px;
+    overflow-y: auto;
+    animation: slideDown 0.2s ease-out;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .calendar-popup.open {
+    display: block !important;
+    /* CRITICAL: Force display */
+  }
+
+  /* Calendar header */
+  .calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .calendar-nav-btn {
+    padding: 0.5rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+  }
+
+  .calendar-nav-btn:hover {
+    background: #f3f4f6;
+  }
+
+  .calendar-nav-btn .icon {
+    width: 20px;
+    height: 20px;
+    color: #374151;
+  }
+
+  .calendar-year {
+    font-weight: 600;
+    font-size: 1.125rem;
+    color: #111827;
+  }
+
+  /* Month grid - 4 columns to match reference */
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+  }
+
+  .month-btn {
+    padding: 0.625rem 0.5rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.875rem;
+    text-align: center;
+  }
+
+  .month-btn:hover:not(.selected) {
+    background: #f9fafb;
+    border-color: #d1d5db;
+  }
+
+  .month-btn.selected {
+    background: #5e17eb;
+    color: white;
+  }
+
+  .month-btn div {
+    line-height: 1.4;
+  }
+
+  /* Calendar legend */
+  .calendar-legend {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 0.75rem;
+    margin-top: 0.75rem;
+    border-top: 1px solid #f3f4f6;
+    font-size: 0.8125rem;
+    color: #6b7280;
+    gap: 1rem;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .legend-dot {
+    width: 8px;
+    height: 8px;
+    background: #5e17eb;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .legend-item .icon {
+    width: 14px;
+    height: 14px;
+    color: #6b7280;
+    flex-shrink: 0;
+  }
+
+  /* ============================================
+   TEMPLATE SECTION - MATCHING REFERENCE DESIGN
+   ============================================ */
+
+  .template-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .employees-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    color: #6b7280;
+    background: #f9fafb;
+    padding: 0.375rem 0.625rem;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    white-space: nowrap;
+  }
+
+  .employees-badge .icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Template list */
+  .template-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Template items - compact cards matching reference */
+  .template-item {
+    border: 2px solid #6b728033;
+    border-radius: 12px;
+    padding: 1rem;
+    transition: all 0.2s;
+    background: #fafafa;
+    margin-top: 8px;
+  }
+
+  .template-item:hover {
+    /* border-color: #5E17EB; */
+    box-shadow: 0 2px 8px rgba(6, 95, 70, 0.08);
+  }
+
+  .template-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .template-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .template-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .template-name {
+    font-weight: 600;
+    color: #111827;
+    font-size: 0.9375rem;
+    margin: 0;
+  }
+
+  .recommended-badge {
+    background: #5e17eb;
+    color: white;
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+  }
+
+  .template-description {
+    font-size: 0.8125rem;
+    color: #6b7280;
+    margin-bottom: 0.625rem;
+    line-height: 1.5;
+  }
+
+  .template-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+
+  .template-meta-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+  }
+
+  .template-meta-item .icon {
+    width: 14px;
+    height: 14px;
+    color: #9ca3af;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  /* ===== Upload Card UI ===== */
+  .upload-header {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .upload-max {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+
+  .upload-dropzone {
+    border: 2px dashed #e5e7eb;
+    border-radius: 12px;
+    padding: 2rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    background: #fafafa;
+    transition: all 0.25s ease;
+    display: block;
+    margin-top: 1rem;
+  }
+
+  /* .upload-dropzone:hover {
+  border-color: #5E17EB;
+  background: #f8f7ff;
+} */
+
+  .upload-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    background: #f1f1f5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    color: #6b7280;
+  }
+
+  .upload-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #111827;
+    margin-bottom: 0.25rem;
+  }
+
+  .upload-subtitle {
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-bottom: 1rem;
+  }
+
+  .browse-btn {
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .browse-btn:hover {
+    border-color: #5e17eb;
+    color: #5e17eb;
+  }
+
+  .upload-formats {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 0.75rem;
+  }
+
+  /* Download buttons - matching reference style */
+  .download-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.125rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    border: none;
+    white-space: nowrap;
+    transition: all 0.2s;
+    min-width: 100px;
+    flex-shrink: 0;
+  }
+
+  .download-btn .icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .download-btn.primary {
+    background: #5e17eb;
+    color: white;
+  }
+
+  .download-btn.primary:hover {
+    background: #5e17eb;
+    box-shadow: 0 2px 8px rgba(6, 95, 70, 0.3);
+  }
+
+  .download-btn.secondary {
+    background: white;
+    color: #374151;
+    border: 1px solid #d1d5db;
+  }
+
+  .download-btn.secondary:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+  }
+
+  /* Info box - cleaner design */
+  .info-box {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 10px;
+  }
+
+  .info-box-content {
+    display: flex;
+    gap: 0.875rem;
+    align-items: flex-start;
+  }
+
+  .info-box-icon {
+    width: 20px;
+    height: 20px;
+    color: #0284c7;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .info-box-title {
+    font-weight: 600;
+    color: #0c4a6e;
+    margin-bottom: 0.625rem;
+    font-size: 0.9375rem;
+  }
+
+  .info-box-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    color: #075985;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  .info-box-list li {
+    margin-bottom: 0.375rem;
+    position: relative;
+    padding-left: 1.125rem;
+  }
+
+  .info-box-list li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #0284c7;
+    font-weight: bold;
+  }
+
+  /* ============================================
+   UPLOAD SECTION
+   ============================================ */
+
+  .upload-section {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .upload-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .upload-link {
+    /* color: #5E17EB; */
+    text-decoration: none;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.625rem 1rem;
+    border-radius: 8px;
+    transition: all 0.2s;
+    border: 2px solid rgba(107, 114, 128, 0.2);
+    font-size: 0.875rem;
+    background: white;
+  }
+
+  .upload-link:hover {
+    background-color: #5e17eb;
+    color: white;
+  }
+
+  .upload-wrapper {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .upload-wrapper p {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin: 0.25rem 0 0 0;
+  }
+
+  .submit-btn {
+    padding: 0.625rem 1.5rem;
+    background-color: #9ca3af;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: not-allowed;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+
+  .submit-btn.enabled {
+    background-color: #5e17eb;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(122, 52, 171, 0.3);
+  }
+
+  .submit-btn.enabled:hover {
+    background-color: #5e17eb;
+    box-shadow: 0 4px 12px rgba(122, 52, 171, 0.4);
+  }
+
+  .fixed-footer {
+    position: fixed;
+    bottom: 0;
+
+    right: 180px;
+    width: 68%;
+    background: #ffffff;
+    border-top: 1px solid #e5e7eb;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 999;
+  }
+
+  /* LEFT SIDE */
+  .footer-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .info-icon {
+    font-size: 18px;
+    color: #6b7280;
+  }
+
+  .footer-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+  }
+
+  .footer-subtitle {
+    font-size: 13px;
+    color: #6b7280;
+  }
+
+  /* RIGHT SIDE */
+  .footer-right {
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .btn-secondary:hover {
+    background: #f9fafb;
+  }
+
+  .btn-primary {
+    padding: 8px 18px;
+    background: #5e17eb;
+    /* same blueishh tone */
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #ffffff;
+    cursor: pointer;
+    opacity: 0.5;
+  }
+
+  /* .btn-primary:hover {
+    opacity: 0.9;
+  } */
+
+  /* ============================================
+   RESPONSIVE BREAKPOINTS
+   ============================================ */
+
+  /* Tablet (768px and below) */
+  @media (max-width: 768px) {
+    .modern-container {
+      max-width: 100%;
+      padding: 0 0.75rem;
+    }
+
+    .modern-card {
+      padding: 1.25rem;
+      margin-bottom: 0.875rem;
+      border-radius: 12px;
+    }
+
+    .period-header,
+    .template-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .fiscal-year,
+    .employees-badge {
+      align-self: flex-start;
+    }
+
+    .calendar-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+    }
+
+    .template-content {
+      flex-direction: column;
+      gap: 0.875rem;
+    }
+
+    .download-btn {
+      width: 100%;
+    }
+
+    .upload-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .upload-link,
+    .submit-btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .upload-wrapper {
+      width: 100%;
+    }
+  }
+
+  /* Mobile (480px and below) */
+  @media (max-width: 480px) {
+    .modern-card {
+      padding: 1rem;
+      border-radius: 10px;
+    }
+
+    .period-title,
+    .template-name {
+      font-size: 0.875rem;
+    }
+
+    .calendar-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .month-btn {
+      font-size: 0.8125rem;
+      padding: 0.5rem 0.375rem;
+    }
+
+    .template-meta {
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .info-box {
+      padding: 0.875rem;
+    }
+
+    .info-box-content {
+      flex-direction: column;
+    }
+
+    .dropdown-button {
+      padding: 0.625rem 0.875rem;
+    }
+  }
+
+  /* Extra small devices (360px and below) */
+  @media (max-width: 360px) {
+    .modern-container {
+      padding: 0 0.5rem;
+    }
+
+    .calendar-legend {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+  }
+
+  /* ============================================
+   ALERTS
+   ============================================ */
+
+  .alert {
+    padding: 0.875rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+
+
+    position: fixed;
+    top: 75px;
+    /* Make it fixed */
+    right: 180px;
+    width: 68%;
+    /* Center horizontally */
+    z-index: 9999;
+    /* Show above everything */
+  }
+
+  .alert-success {
+    background-color: #d1fae5;
+    border: 1px solid #6ee7b7;
+    color: #065f46;
+  }
+
+  .alert-error {
+    background-color: #fee2e2;
+    border: 1px solid #fca5a5;
+    color: #991b1b;
+  }
+
+  /* ============================================
+   ICON STROKE STANDARDIZATION
+   ============================================ */
+
+  .icon {
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+
+  /* ============================================
+   ACCESSIBILITY IMPROVEMENTS
+   ============================================ */
+
+  .dropdown-button:focus-visible,
+  .calendar-nav-btn:focus-visible,
+  .month-btn:focus-visible,
+  .download-btn:focus-visible {
+    outline: 2px solid #065f46;
+    outline-offset: 2px;
+  }
+
+  /* Ensure touch targets are large enough on mobile */
+  @media (max-width: 768px) {
+
+    .dropdown-button,
+    .calendar-nav-btn,
+    .month-btn,
+    .download-btn,
+    .upload-link,
+    .submit-btn {
+      min-height: 44px;
+    }
+  }
+
+  /* CRITICAL: Ensure modal doesn't clip dropdown */
+  .oh-modal__dialog-body {
+    overflow: visible !important;
+  }
+
+  .payslip-import-modal {
+    overflow: visible !important;
+  }
+</style>
+
+<div style="padding: 20px 150px">
+  <div class="oh-modal__dialog-body oh-modal__dialog-relative payslip-import-modal">
+    <!-- Django Messages Display (matching index.html style) -->
+    <!-- {% if messages %}
+        <div class="oh-alert-container">
+            {% for message in messages %}
+                <div class="oh-alert oh-alert--animated {{message.tags}}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %} -->
+
+    <div id="alertContainer" class="oh-alert-container"></div>
+
+    <div class="modern-container">
+      <!-- Payroll Period Section -->
+      <div class="modern-card">
+        <div class="period-header">
+          <div class="period-title-group">
+            <svg class="period-icon icon" viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <div>
+              <h2 class="period-title">Payroll Period</h2>
+              <p class="period-subtitle">Select month for processing</p>
+            </div>
+          </div>
+          <div class="fiscal-year" onclick="toggleFiscalYear()">
+            <svg class="icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            Fiscal Year
+          </div>
+        </div>
+
+        <div class="dropdown-wrapper">
+          <button class="dropdown-button" id="calendarToggle" type="button">
+            <div class="dropdown-button-content">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+              <span class="dropdown-button-text" id="selectedPeriodDisplay">{{
+                months_data.0.month_name|default:"December" }} {{ current_year|default:"2026" }}</span>
+            </div>
+            <svg class="chevron icon" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <div class="calendar-popup" id="calendarPopup">
+            <div class="calendar-header">
+              <button class="calendar-nav-btn" type="button" onclick="changeYear(-1)">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+              </button>
+              <span class="calendar-year" id="yearDisplay">{{ current_year|default:"2026" }}</span>
+              <button class="calendar-nav-btn" type="button" onclick="changeYear(1)">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </button>
+            </div>
+
+            <div class="calendar-grid" id="monthGrid">
+              {% for month_data in months_data %}
+              <button class="month-btn {% if month_data.month_num == current_month %}selected{% endif %}" type="button"
+                data-month="{{ month_data.month_num }}" onclick="selectMonth(this)">
+                {{ month_data.month_name|slice:":3" }}
+              </button>
+              {% endfor %}
+            </div>
+
+            <div class="calendar-legend">
+              <div class="legend-item">
+                <div class="legend-dot"></div>
+                Selected
+              </div>
+              <div class="legend-item">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+                  <circle cx="12" cy="16" r="1"></circle>
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+                </svg>
+                Locked Period
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Download Template Section -->
+      <div class="modern-card">
+        <div class="template-header">
+          <div class="period-title-group">
+            <svg class="period-icon icon" viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+            <div>
+              <h2 class="period-title">Download Template</h2>
+              <p class="period-subtitle">
+                Excel templates with auto-populated data
+              </p>
+            </div>
+          </div>
+          <div class="employees-badge">
+            <svg class="icon" viewBox="0 0 24 24">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span id="employeeCount">{{ employee_count|default:0 }}</span> Employees
+          </div>
+        </div>
+
+        <div class="template-list">
+          <!-- Standard -->
+          <div class="template-item" id="card1">
+            <div class="template-content">
+              <div class="template-info">
+                <div class="template-name-row">
+                  <h3 class="template-name">Standard Payroll Template</h3>
+                  <span class="recommended-badge">Recommended</span>
+                </div>
+                <p class="template-description">
+                  Pre-populated with employee data from contracts
+                </p>
+                <div class="template-meta">
+                  <div class="template-meta-item">
+                    <svg class="icon" viewBox="0 0 24 24">
+                      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                      <polyline points="13 2 13 9 20 9"></polyline>
+                    </svg>
+                    2.4 MB
+                  </div>
+                  <div class="template-meta-item">
+                    <svg class="icon" viewBox="0 0 24 24">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    Employee ID, Name, Pay Type, Base Rate, Bank Info
+                  </div>
+                </div>
+              </div>
+              <button class="download-btn primary" onclick="downloadTemplate(event)">
+                Download
+              </button>
+            </div>
+          </div>
+
+          <!-- Detailed --------------->
+          <div class="template-item" id="card2">
+            <div class="template-content">
+              <div class="template-info">
+                <div class="template-name-row upload-header">
+                  <h3 class="template-name">Upload Payroll File</h3>
+                  <span class="upload-max">Max 50MB</span>
+                </div>
+
+                <!-- Upload UI -->
+                <label class="upload-dropzone" for="fileInput">
+                  <div class="upload-icon">⬆️</div>
+
+                  <p class="upload-title">Drag and drop your file here</p>
+                  <p class="upload-subtitle">
+                    or click to browse from your computer
+                  </p>
+
+                  <span class="browse-btn" onclick="browseFiles()">📁 Browse Files</span>
+
+                  <!-- ❗ ID NOT REMOVED -->
+                  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="enableSubmit(this)" hidden />
+
+                </label>
+
+                <p class="upload-formats">
+                  📄 Supported formats: .xlsx, .xls, .csv
+                </p>
+
+                <!-- ❗ ID NOT REMOVED -->
+                <!-- <button
+        class="submit-btn"
+        id="submitBtn"
+        disabled
+        onclick="submitImport()"
+      >
+        Submit
+      </button> -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom -->
+        <div class="template-item" id="card3">
+          <div class="template-content">
+            <div class="template-info">
+              <div class="template-name-row">
+                <h3 class="template-name">Review & Approve</h3>
+              </div>
+              <p class="template-description">
+                Your payslips are ready to view
+              </p>
+              <div class="template-meta"></div>
+            </div>
+            <button class="download-btn primary" onclick='location.href="/payroll/view-payslip/"'>
+              Review Payslips
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <div class="info-box-content">
+          <svg class="info-box-icon icon" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <div>
+            <h4 class="info-box-title">Template Features</h4>
+            <ul class="info-box-list">
+              <li>Auto-populated employee data from active contracts</li>
+              <li>Pre-configured formulas for calculations</li>
+              <li>Data validation to prevent errors</li>
+              <li>Compatible with Excel 2016 and later versions</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- //---this is an last div----------------// -->
+    <div class="fixed-footer">
+      <div class="footer-left">
+        <span class="info-icon">ℹ️</span>
+        <div class="footer-text">
+          <div class="footer-title" id="ftitle">Select a payroll period to continue</div>
+          <div class="footer-subtitle" id="fsubtitle">
+            Choose month from the calendar above
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-right">
+        <!-- <button class="btn-secondary">Back to Contracts</button> -->
+        <button class="submit-btn" id="submitBtn" disabled onclick="submitImport()"
+          style="display:none;">Submit</button>
+        <button class="btn-primary" id="fbutton" onclick="proceedToUpload()">Proceed to Upload →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  $(document).ready(function () {
+    var modalDialog = $("#objectDetailsModal .oh-modal__dialog");
+    if (modalDialog.length) {
+      modalDialog.css("max-width", "90%");
+      modalDialog.css("width", "1200px");
+    }
+  });
+
+  let selectedMonth = parseInt("{{ current_month|default:0 }}") || 0;
+  let selectedYear = parseInt("{{ current_year|default:0 }}") || 0;
+  let selectedFile = null;
+
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  function updateSelectedPeriodDisplay() {
+    const display = document.getElementById("selectedPeriodDisplay");
+    if (display && selectedMonth > 0 && selectedMonth <= 12) {
+      display.textContent = `${monthNames[selectedMonth - 1]} ${selectedYear}`;
+    }
+  }
+
+  updateSelectedPeriodDisplay();
+
+  function changeYear(delta) {
+    selectedYear += delta;
+    const yearDisplay = document.getElementById("yearDisplay");
+    if (yearDisplay) {
+      yearDisplay.textContent = selectedYear;
+    }
+    updateSelectedPeriodDisplay();
+
+    // Reload page with new year to regenerate months_data
+    const url = `{% url 'payslip-info-import' %}?year=${selectedYear}`;
+    window.location.href = url;
+  }
+
+  function selectMonth(btn) {
+    // Remove selected class from all month buttons
+    document
+      .querySelectorAll(".month-btn")
+      .forEach((b) => b.classList.remove("selected"));
+
+    // Add selected class to clicked button
+    btn.classList.add("selected");
+
+    // Update selected month (month_num is 1-12)
+    selectedMonth = parseInt(btn.dataset.month);
+
+    // Update display
+    updateSelectedPeriodDisplay();
+
+    // Close the dropdown after selection
+    setTimeout(() => {
+      const dropdownBtn = document.getElementById("calendarToggle");
+      const calendarPopup = document.getElementById("calendarPopup");
+      if (dropdownBtn && calendarPopup) {
+        dropdownBtn.classList.remove("open");
+        calendarPopup.classList.remove("open");
+        calendarPopup.style.display = "none";
+      }
+    }, 200);
+
+    const templates = document.getElementById("card1");
+    const ftitle = document.getElementById("ftitle");
+    const fsubtitle = document.getElementById("fsubtitle");
+    const fbutton = document.getElementById("fbutton");
+    const total_employees = 1247;
+    templates.style.borderColor = "#5E17EB";
+    templates.style.boxShadow = "0 4px 12px rgba(122, 52, 171, 0.4)";
+    ftitle.innerHTML = `Ready to process {{ employee_count|default:0 }} employees`
+    fsubtitle.innerHTML = `You have selected ${monthNames[selectedMonth - 1]} ${selectedYear}`;
+
+
+
+  }
+
+  // Calendar dropdown toggle functionality - FIXED
+  document.addEventListener("DOMContentLoaded", function () {
+    const calendarToggle = document.getElementById("calendarToggle");
+    const calendarPopup = document.getElementById("calendarPopup");
+
+    if (calendarToggle && calendarPopup) {
+      // Click handler for dropdown button
+      calendarToggle.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Toggle open state
+        const isOpen = this.classList.toggle("open");
+        calendarPopup.classList.toggle("open");
+
+        // Force display
+        if (isOpen) {
+          calendarPopup.style.display = "block";
+        } else {
+          calendarPopup.style.display = "none";
+        }
+      });
+
+      // Prevent dropdown from closing when clicking inside it
+      calendarPopup.addEventListener("click", function (e) {
+        e.stopPropagation();
+      });
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", function (e) {
+      const dropdownWrapper = document.querySelector(".dropdown-wrapper");
+      if (dropdownWrapper && !dropdownWrapper.contains(e.target)) {
+        const dropdownBtn = document.getElementById("calendarToggle");
+        const popup = document.getElementById("calendarPopup");
+
+        if (dropdownBtn && popup) {
+          dropdownBtn.classList.remove("open");
+          popup.classList.remove("open");
+          popup.style.display = "none";
+        }
+      }
+    });
+  });
+
+  // Rest of your original script remains unchanged
+  let timeout = null;
+  function debounceUpdateYear(input) {
+    const year = input.value;
+    selectedYear = parseInt(year) || selectedYear;
+    updateSelectedPeriodDisplay();
+    if (year.length === 4 && year >= 2000 && year <= 2100) {
+      clearTimeout(timeout);
+      timeout = setTimeout(function () {
+        window.location.href = `{% url 'payslip-info-import' %}?year=${year}`;
+      }, 800);
+    }
+  }
+
+  function toggleFiscalYear() {
+    console.log("Toggle fiscal year");
+  }
+
+  function enableSubmit(input) {
+    const btn = document.getElementById("submitBtn");
+    if (input.files.length > 0) {
+      selectedFile = input.files[0];
+      btn.disabled = false;
+      btn.classList.add("enabled");
+    } else {
+      selectedFile = null;
+      btn.disabled = true;
+      btn.classList.remove("enabled");
+    }
+  }
+
+  function downloadTemplate(event) {
+    event.preventDefault();
+    fbutton.style.opacity = "1.0";
+    const url = '{% url "payslip-import-template" %}';
+    window.location.href = url;
+  }
+
+  function downloadPayslips(event) {
+    event.preventDefault();
+    if (!selectedMonth || !selectedYear) {
+      showAlert("Please select a month and year first.", "error");
+      return;
+    }
+    const url =
+      '{% url "payslip-import-download" %}?month=' +
+      selectedMonth +
+      "&year=" +
+      selectedYear;
+    window.location.href = url;
+  }
+
+  function submitImport() {
+    if (!selectedFile || !selectedMonth || !selectedYear) {
+      showAlert("Please select a file, month, and year.", "error");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    formData.append("month", selectedMonth);
+    formData.append("year", selectedYear);
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    const submitBtn = document.getElementById("submitBtn");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Processing...";
+
+    fetch('{% url "payslip-import-process" %}', {
+      method: "POST",
+      body: formData,
+      headers: { "X-CSRFToken": "{{ csrf_token }}" },
+      redirect: 'follow' // Follow redirects
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.status === "success") {
+          showAlert(data.message, "success");
+          // setTimeout(() => window.location.reload(), 2000);
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Submit";
+          submitBtn.style.display = "none";
+        } else {
+          showAlert(data.message, "error");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+        }
+      })
+      .catch((error) => {
+        console.error("Error:", error);
+        showAlert("An error occurred while processing the file.", "error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Submit";
+      });
+    const card3 = document.getElementById("card3");
+    card2.style.borderColor = "#6b728033";
+    card3.scrollIntoView({ behavior: "smooth" });
+    card3.style.borderColor = "#5E17EB";
+    card3.style.boxShadow = "0 4px 12px rgba(122, 52, 171, 0.4)";
+  }
+
+  function showAlert(message, type) {
+    const container = document.getElementById("alertContainer");
+    const div = document.createElement("div");
+    div.className = `oh-alert oh-alert--animated oh-alert--${type === "success" ? "success" : "danger"}`;
+    div.textContent = message;
+    container.innerHTML = "";
+    container.appendChild(div);
+    setTimeout(() => div.remove(), 5000);
+  }
+  function proceedToUpload() {
+    const card2 = document.getElementById("card2");
+    card1.style.borderColor = "#6b728033";
+    card2.scrollIntoView({ behavior: "smooth" });
+    card2.style.borderColor = "#5E17EB";
+    card2.style.boxShadow = "0 4px 12px rgba(122, 52, 171, 0.4)";
+  }
+  function browseFiles() {
+    fbutton.style.display = "none";
+    submitBtn.style.display = "inline-block";
+  }
+</script>
+
+{% endblock content %}

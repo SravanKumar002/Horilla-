@@ -8,7 +8,8 @@ from django.utils import timezone
 from django.utils.deprecation import MiddlewareMixin
 
 from attendance.methods.utils import Request
-
+from notifications.signals import notify
+from django.urls import reverse
 
 class AttendanceMiddleware(MiddlewareMixin):
     """
@@ -30,7 +31,7 @@ class AttendanceMiddleware(MiddlewareMixin):
         auto punch-out time has passed, the function attempts to clock out the employee
         automatically by invoking the `clock_out` function.
         """
-        from attendance.models import Attendance, AttendanceActivity
+        from attendance.models import Attendance, AttendanceActivity, WorkRecords
         from attendance.views.clock_in_out import clock_out
         from base.models import EmployeeShiftSchedule
 
@@ -46,6 +47,7 @@ class AttendanceMiddleware(MiddlewareMixin):
             ).order_by("-created_at")
 
             for activity in activities:
+                
                 attendance = Attendance.objects.filter(
                     employee_id=activity.employee_id,
                     attendance_clock_out=None,
@@ -75,5 +77,45 @@ class AttendanceMiddleware(MiddlewareMixin):
                                     datetime=combined_datetime,
                                 )
                             )
+
+                            # ==================================
+                            #  NOTIFICATION FOR AUTO CLOCK-OUT
+                            # ==================================
+                            try:
+                                formatted_date = date.strftime("%d-%m-%Y")
+
+                                notify.send(
+                                    attendance.employee_id,
+                                    recipient=attendance.employee_id.employee_user_id,
+                                    verb=f"You were automatically clocked out for {formatted_date} at {shift_schedule.auto_punch_out_time.strftime('%I:%M %p')}.",
+                                    verb_ar=f"تم تسجيل خروجك تلقائيًا ليوم {formatted_date} في {shift_schedule.auto_punch_out_time.strftime('%I:%M %p')}.",
+                                    verb_de=f"Sie wurden automatisch am {formatted_date} um {shift_schedule.auto_punch_out_time.strftime('%I:%M %p')} ausgestempelt.",
+                                    verb_es=f"Se te marcó la salida automáticamente el {formatted_date} a las {shift_schedule.auto_punch_out_time.strftime('%I:%M %p')}.",
+                                    verb_fr=f"Vous avez été déconnecté automatiquement le {formatted_date} à {shift_schedule.auto_punch_out_time.strftime('%I:%M %p')}.",
+                                    icon="clock",
+                                    redirect=reverse("request-attendance-view"),
+                                )
+
+                                print("Auto clock-out notification sent.")
+                            except Exception as ne:
+                                print("Auto clock-out notification failed:", ne)
+
+
+
+                        # Mark WorkRecord as Missed Check Out after auto punch-out
+                            try:
+                                wr, _ = WorkRecords.objects.get_or_create(
+                                    date=attendance.attendance_date,
+                                    employee_id=attendance.employee_id,
+                                )
+                                wr.is_attendance_record = True
+                                wr.attendance_id = attendance
+                                wr.shift_id = attendance.shift_id
+                                wr.work_record_type = "MCO"
+                                wr.message = "Missed Check Out (Auto)"
+                                wr.save()
+                                print("WorkRecord updated for auto checkout.")
+                            except Exception as we:
+                                print(f"Failed to update WorkRecord for auto checkout: {we}")
                         except Exception as e:
                             print(f"{e}")

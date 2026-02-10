@@ -2,7 +2,7 @@
     {% load i18n widget_tweaks attendancefilters %}
     <div class="oh-modal__dialog-header">
         <h2 class="oh-modal__dialog-title" id="addEmployeeModalLabel">
-            {% trans "New Attendances Request" %}
+            {% trans "Attendance Regularization" %}
         </h2>
         <button class="oh-modal__close" aria-label="Close">
             <ion-icon name="close-outline"></ion-icon>
@@ -10,44 +10,68 @@
     </div>
     <div class="oh-modal__dialog-body">
         <div class="oh-general__tab-target oh-profile-section" id="personal">
-            <form hx-post="{% url 'request-new-attendance' %}?bulk={{bulk}}" hx-target="#objectCreateModalTarget" id="attendanceRequestForm">
+            <form hx-post="{% url 'request-new-attendance' %}?bulk={{bulk}}" hx-target="#objectCreateModalTarget"
+                id="attendanceRequestForm" data-default-in="{{ form.initial.attendance_clock_in|default_if_none:'' }}"
+                data-default-in-date="{{ form.initial.attendance_clock_in_date|default_if_none:'' }}"
+                data-default-out="{{ form.initial.attendance_clock_out|default_if_none:'' }}"
+                data-default-out-date="{{ form.initial.attendance_clock_out_date|default_if_none:'' }}">
                 {% csrf_token %}
+                {# Render any hidden fields so their values are submitted even when not shown #}
+                {% for hidden in form.hidden_fields %}
+                {{ hidden }}
+                {% endfor %}
+                {# Hidden fields for attendance_worked_hour and minimum_hour #}
+                <input type="hidden" name="attendance_worked_hour" id="id_attendance_worked_hour" value="">
+                <input type="hidden" name="minimum_hour" id="id_minimum_hour" value="">
                 <div class="oh-profile-section__card">
                     <div class="row">
                         <div class="col-12">{{form.non_field_errors}}</div>
+                        {% if show_status %}
+                        <div class="col-12 col-md-6">
+                            <div class="oh-label__info">
+                                <label class="oh-label">{% trans "Status" %}</label>
+                            </div>
+                            <input class="form-control" type="text" value="{{ status_value }}" readonly />
+                        </div>
+                        {% endif %}
                         {% for field in form.visible_fields %}
-                            {% if field.field.widget|is_select_multiple or field.field.widget|is_text_area %}
-                                <div class="oh-label__info" for="id_{{ field.name }}">
-                                    <label class="oh-label {% if field.field.required %} required-star{% endif %}"
-                                    for="id_{{ field.name }}">{{ field.label }}</label>
-                                    {% if field.help_text != '' %}
-                                        <span class="oh-info mr-2" title="{{ field.help_text|safe }}"></span>
-                                    {% endif %}
-                                </div>
-                                <div style="width: 100%; padding: 12px;">
-
-                                    {{ field|add_class:"form-control" }}
-                                </div>
-                            {% else %}
-                                <div class="col-12 col-md-6" id="id_{{field.name}}_parent_div">
-                                    <div class="oh-label__info" for="id_{{ field.name }}">
-                                        <label class="oh-label {% if field.field.required %} required-star{% endif %}"
-                                        for="id_{{ field.name }}">{{ field.label }}</label>
-                                        {% if field.help_text != '' %}
-                                            <span class="oh-info mr-2" title="{{ field.help_text|safe }}"></span>
-                                        {% endif %}
-                                    </div>
-                                    {% if field.field.widget.input_type == "checkbox" %}
-                                    <div class="oh-switch" style="width: 30px">
-                                        {{ field|add_class:"oh-switch__checkbox" }}
-
-                                    </div>
-                                    {% else %}
-                                    {{ field|add_class:"form-control" }}
-                                    {% endif %}
-                                    {{field.errors}}
-                                </div>
+                        {% if hide_fields and field.name in hide_fields %}
+                        {# Render a hidden input so the server still receives the value on submit #}
+                        {% render_field field type="hidden" %}
+                        {% else %}
+                        {% if field.field.widget|is_select_multiple or field.field.widget|is_text_area %}
+                        <div class="oh-label__info" for="id_{{ field.name }}">
+                            <label class="oh-label {% if field.field.required %} required-star{% endif %}"
+                                for="id_{{ field.name }}">{{ field.label }}</label>
+                            {% if field.help_text != '' %}
+                            <span class="oh-info mr-2" title="{{ field.help_text|safe }}"></span>
                             {% endif %}
+                        </div>
+                        <div style="width: 100%; padding: 12px;">
+
+                            {{ field|add_class:"form-control" }}
+                        </div>
+                        {% else %}
+                        <div class="col-12 col-md-6" id="id_{{field.name}}_parent_div">
+                            <div class="oh-label__info" for="id_{{ field.name }}">
+                                <label class="oh-label {% if field.field.required %} required-star{% endif %}"
+                                    for="id_{{ field.name }}">{{ field.label }}</label>
+                                {% if field.help_text != '' %}
+                                <span class="oh-info mr-2" title="{{ field.help_text|safe }}"></span>
+                                {% endif %}
+                            </div>
+                            {% if field.field.widget.input_type == "checkbox" %}
+                            <div class="oh-switch" style="width: 30px">
+                                {{ field|add_class:"oh-switch__checkbox" }}
+
+                            </div>
+                            {% else %}
+                            {{ field|add_class:"form-control" }}
+                            {% endif %}
+                            {{field.errors}}
+                        </div>
+                        {% endif %}
+                        {% endif %}
                         {% endfor %}
                     </div>
 
@@ -61,3 +85,108 @@
         </div>
     </div>
 </div>
+<script>
+    (function () {
+        const form = document.getElementById("attendanceRequestForm");
+        if (!form) {
+            return;
+        }
+        const applyValue = (field, value) => {
+            if (!value) {
+                return;
+            }
+            const input = form.querySelector(`[name="${field}"]`);
+            if (input && !input.value) {
+                input.value = value;
+            }
+        };
+        applyValue("attendance_clock_in", form.dataset.defaultIn);
+        applyValue("attendance_clock_in_date", form.dataset.defaultInDate);
+        applyValue("attendance_clock_out", form.dataset.defaultOut);
+        applyValue("attendance_clock_out_date", form.dataset.defaultOutDate);
+
+        // Function to calculate worked hours from clock in and clock out
+        function calculateWorkedHour() {
+            const clockInDate = form.querySelector('[name="attendance_clock_in_date"]')?.value;
+            const clockInTime = form.querySelector('[name="attendance_clock_in"]')?.value;
+            const clockOutDate = form.querySelector('[name="attendance_clock_out_date"]')?.value;
+            const clockOutTime = form.querySelector('[name="attendance_clock_out"]')?.value;
+            const workedHourInput = document.getElementById('id_attendance_worked_hour');
+
+            if (clockInDate && clockInTime && clockOutDate && clockOutTime) {
+                try {
+                    const inDateTime = new Date(clockInDate + 'T' + clockInTime);
+                    const outDateTime = new Date(clockOutDate + 'T' + clockOutTime);
+                    const diffMs = outDateTime - inDateTime;
+                    
+                    if (diffMs >= 0) {
+                        const totalSeconds = Math.floor(diffMs / 1000);
+                        const hours = Math.floor(totalSeconds / 3600);
+                        const minutes = Math.floor((totalSeconds % 3600) / 60);
+                        const workedHour = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+                        if (workedHourInput) {
+                            workedHourInput.value = workedHour;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error calculating worked hour:', e);
+                }
+            }
+        }
+
+        // Function to get minimum hour from shift
+        function updateMinimumHour() {
+            const employeeId = form.querySelector('[name="employee_id"]')?.value;
+            const attendanceDate = form.querySelector('[name="attendance_date"]')?.value;
+            const shiftId = form.querySelector('[name="shift_id"]')?.value;
+            const minimumHourInput = document.getElementById('id_minimum_hour');
+
+            if (shiftId && attendanceDate) {
+                // Use update_fields_based_shift endpoint to get minimum hour
+                fetch(`/attendance/update-fields-based-shift?shift_id=${shiftId}&attendance_date=${attendanceDate}&employee_id=${employeeId || ''}`)
+                    .then(response => response.text())
+                    .then(html => {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        const minHourField = doc.querySelector('[name="minimum_hour"]');
+                        if (minHourField && minimumHourInput) {
+                            minimumHourInput.value = minHourField.value || '00:00';
+                        } else if (minimumHourInput && !minimumHourInput.value) {
+                            minimumHourInput.value = '00:00';
+                        }
+                    })
+                    .catch(e => {
+                        console.error('Error fetching minimum hour:', e);
+                        if (minimumHourInput && !minimumHourInput.value) {
+                            minimumHourInput.value = '00:00';
+                        }
+                    });
+            } else if (minimumHourInput && !minimumHourInput.value) {
+                minimumHourInput.value = '00:00';
+            }
+        }
+
+        // Add event listeners to recalculate when times change
+        const clockInDateInput = form.querySelector('[name="attendance_clock_in_date"]');
+        const clockInTimeInput = form.querySelector('[name="attendance_clock_in"]');
+        const clockOutDateInput = form.querySelector('[name="attendance_clock_out_date"]');
+        const clockOutTimeInput = form.querySelector('[name="attendance_clock_out"]');
+        const employeeInput = form.querySelector('[name="employee_id"]');
+        const attendanceDateInput = form.querySelector('[name="attendance_date"]');
+        const shiftInput = form.querySelector('[name="shift_id"]');
+
+        if (clockInDateInput) clockInDateInput.addEventListener('change', calculateWorkedHour);
+        if (clockInTimeInput) clockInTimeInput.addEventListener('change', calculateWorkedHour);
+        if (clockOutDateInput) clockOutDateInput.addEventListener('change', calculateWorkedHour);
+        if (clockOutTimeInput) clockOutTimeInput.addEventListener('change', calculateWorkedHour);
+        if (employeeInput) employeeInput.addEventListener('change', updateMinimumHour);
+        if (attendanceDateInput) attendanceDateInput.addEventListener('change', updateMinimumHour);
+        if (shiftInput) shiftInput.addEventListener('change', updateMinimumHour);
+
+        // Calculate on initial load
+        setTimeout(() => {
+            calculateWorkedHour();
+            updateMinimumHour();
+        }, 500);
+    })();
+</script>

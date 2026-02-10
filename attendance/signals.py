@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 from django.apps import apps
-from django.db.models.signals import post_migrate, post_save, pre_delete
+from django.db.models.signals import post_migrate, post_save, pre_delete, post_delete
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
@@ -12,6 +12,7 @@ from attendance.models import Attendance, AttendanceGeneralSetting, WorkRecords
 from base.models import Company, PenaltyAccounts
 from employee.models import Employee
 from horilla.methods import get_horilla_model_class
+from base.models import EmployeeShiftDay, EmployeeShiftSchedule
 
 
 @receiver(post_save, sender=Attendance)
@@ -170,14 +171,18 @@ def create_attendance_setting(sender, instance, created, raw, **kwargs):
         AttendanceGeneralSetting.objects.get_or_create(company_id=instance)
 
 
-# @receiver(post_migrate)
-def create_missing_work_records(sender, **kwargs):
-    if sender.label not in ["attendance"]:
-        return
+def _create_missing_work_records_for_shift(shift):
+    """
+    Backfill WorkRecords for employees in the given shift.
+    Marks Weekly Off for days not present in the shift schedule; Draft otherwise.
+    """
 
-    employees = Employee.objects.all()
-    work_records = WorkRecords.objects.all()
-
+    employees = Employee.objects.filter(employee_work_info__shift_id=shift, id="666")
+    work_records = WorkRecords.objects.filter(employee_id__in=employees)
+    print("===== DEBUG: work_records() START =====")
+    print("Shift:", shift)
+    print("Employees:", employees)
+    print("===== DEBUG: work_records() END =====")
     if work_records.exists():
         st_date = work_records.earliest("date").date
 
@@ -198,15 +203,24 @@ def create_missing_work_records(sender, **kwargs):
                 }
                 missing_dates = all_dates - existing_dates
 
-                work_records_to_create = [
-                    WorkRecords(
+                work_records_to_create = []
+                for missing_date in missing_dates:
+                    try:
+                        day_name = missing_date.strftime("%A").lower()
+                        day_obj = EmployeeShiftDay.objects.get(day=day_name)
+                        is_working_day = EmployeeShiftSchedule.objects.filter(
+                            shift_id=shift, day=day_obj
+                        ).exists()
+                        work_type = "DFT" if is_working_day else "ABS"
+                    except Exception:
+                        work_type = "DFT"
+                    work_rec = WorkRecords(
                         employee_id=employee,
                         date=missing_date,
-                        work_record_type="DFT",
-                        shift_id=employee.employee_work_info.shift_id,
+                        work_record_type=work_type,
+                        shift_id=shift,
                     )
-                    for missing_date in missing_dates
-                ]
+                    work_records_to_create.append(work_rec)
 
                 if work_records_to_create:
                     WorkRecords.objects.bulk_create(
@@ -217,3 +231,13 @@ def create_missing_work_records(sender, **kwargs):
                 print(
                     f"Error creating missing work records for employee {employee}: {e}"
                 )
+
+
+@receiver(post_save, sender=EmployeeShiftSchedule)
+def create_missing_work_records_on_schedule_save(sender, instance, created, **kwargs):
+    _create_missing_work_records_for_shift(instance.shift_id)
+
+
+@receiver(post_delete, sender=EmployeeShiftSchedule)
+def create_missing_work_records_on_schedule_delete(sender, instance, **_kwargs):
+    _create_missing_work_records_for_shift(instance.shift_id)

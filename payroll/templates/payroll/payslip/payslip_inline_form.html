@@ -1,0 +1,188 @@
+{% load i18n %}
+{% if messages %}
+<div class="oh-wrapper">
+    {% for message in messages %}
+    <div class="oh-alert-container">
+        <div class="oh-alert oh-alert--animated {{message.tags}}">
+            {{ message }}
+        </div>
+    </div>
+    {% endfor %}
+    {% if success %}
+    <script>
+        setTimeout(function () {
+            $(".oh-modal__close").click();
+            location.reload();
+        }, 1000);
+    </script>
+    {% endif %}
+</div>
+{% endif %}
+<div class="oh-modal__dialog-header pb-0">
+    <h1 class="oh-modal__dialog-title" id="editPayslipModalLabel">
+        {% trans "Edit Payslip" %}
+    </h1>
+    <button class="oh-modal__close" aria-label="Close" onclick="$('.oh-modal--show').removeClass('oh-modal--show');">
+        <ion-icon name="close-outline"></ion-icon>
+    </button>
+</div>
+<div class="oh-modal__dialog-body" id="payslipInlineModal">
+    <form hx-post="{% url 'payslip-inline-edit' payslip.id %}"
+          hx-target="#objectCreateModalTarget"
+          class="oh-profile-section pt-1"
+          id="payslipInlineForm">
+        {% csrf_token %}
+
+        <div class="row">
+            <div class="col-12">
+                <div class="oh-input__group">
+                    <label class="oh-input__label">{% trans "Employee" %}</label>
+                    <input type="text" class="oh-input" value="{{ payslip.employee_id }}" disabled>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-sm-12 col-md-6 col-lg-6">
+                <div class="oh-input__group">
+                    <label class="oh-input__label">{% trans "Start Date" %}</label>
+                    <input type="text" class="oh-input" value="{{ payslip.start_date }}" disabled>
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-6 col-lg-6">
+                <div class="oh-input__group">
+                    <label class="oh-input__label">{% trans "End Date" %}</label>
+                    <input type="text" class="oh-input" value="{{ payslip.end_date }}" disabled>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-sm-12 col-md-6 col-lg-6">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.paid_days.id_for_label }}">{{ form.paid_days.label }}</label>
+                    {{ form.paid_days }}
+                    {{ form.paid_days.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-6 col-lg-6">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.basic_pay.id_for_label }}">{{ form.basic_pay.label }}</label>
+                    {{ form.basic_pay }}
+                    {{ form.basic_pay.errors }}
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.housing_allowance.id_for_label }}">{{ form.housing_allowance.label }}</label>
+                    {{ form.housing_allowance }}
+                    {{ form.housing_allowance.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.transport_allowance.id_for_label }}">{{ form.transport_allowance.label }}</label>
+                    {{ form.transport_allowance }}
+                    {{ form.transport_allowance.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.other_allowance.id_for_label }}">{{ form.other_allowance.label }}</label>
+                    {{ form.other_allowance }}
+                    {{ form.other_allowance.errors }}
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="oh-input__group">
+                    <label class="oh-input__label">{% trans "Total Allowances" %}</label>
+                    <input type="text" class="oh-input" value="{{ allowances_total|floatformat:2 }}" disabled>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.loss_of_pay.id_for_label }}">{{ form.loss_of_pay.label }}</label>
+                    {{ form.loss_of_pay }}
+                    {{ form.loss_of_pay.errors }}
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.overtime.id_for_label }}">{{ form.overtime.label }}</label>
+                    {{ form.overtime }}
+                    {{ form.overtime.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.pretax_advanced_salary.id_for_label }}">{{ form.pretax_advanced_salary.label }}</label>
+                    {{ form.pretax_advanced_salary }}
+                    {{ form.pretax_advanced_salary.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.deduction.id_for_label }}">{{ form.deduction.label }}</label>
+                    {{ form.deduction }}
+                    {{ form.deduction.errors }}
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.allowance_advanced_salary.id_for_label }}">{{ form.allowance_advanced_salary.label }}</label>
+                    {{ form.allowance_advanced_salary }}
+                    {{ form.allowance_advanced_salary.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.bonus.id_for_label }}">{{ form.bonus.label }}</label>
+                    {{ form.bonus }}
+                    {{ form.bonus.errors }}
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-4 col-lg-4">
+                <div class="oh-input__group">
+                    <label class="oh-input__label" for="{{ form.total_deductions.id_for_label }}">{{ form.total_deductions.label }}</label>
+                    {{ form.total_deductions }}
+                    {{ form.total_deductions.errors }}
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 col-sm-12 col-md-6 col-lg-6">
+                <div class="oh-input__group">
+                    <label class="oh-input__label">{% trans "Gross Pay" %}</label>
+                    <input type="text" class="oh-input" value="{{ payslip.gross_pay|floatformat:2 }}" disabled>
+                </div>
+            </div>
+            <div class="col-12 col-sm-12 col-md-6 col-lg-6">
+                <div class="oh-input__group">
+                    <label class="oh-input__label">{% trans "Net Pay" %}</label>
+                    <input type="text" class="oh-input" value="{{ payslip.net_pay|floatformat:2 }}" disabled>
+                </div>
+            </div>
+        </div>
+
+        <div class="oh-modal__dialog-footer p-0 pt-4">
+            <button type="submit" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans "Save" %}</button>
+        </div>
+    </form>
+</div>
+

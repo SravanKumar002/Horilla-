@@ -209,6 +209,9 @@
                     }
                 </script> {% endcomment %}
         </form>
+        <!-- <a href="{% url 'attendance-info-export' %}" class="oh-btn ml-2" title="{% trans 'Export to Excel' %}">
+            <ion-icon name="download-outline" class="mr-1"></ion-icon>{% trans "Export to Excel" %}
+        </a> -->
         <div class="oh-dropdown ml-2" x-data="{open: false}" on>
             <button onclick="event.stopPropagation();event.preventDefault()" class="oh-btn oh-btn--dropdown"
                 @click="open = !open" @click.outside="open = false">

@@ -1690,12 +1690,11 @@ class ShiftRequestForm(ModelForm):
     """
     ShiftRequest model's form
     """
-
+ 
     class Meta:
         """
         Meta class for additional options
         """
-
         model = ShiftRequest
         fields = "__all__"
         exclude = [
@@ -1713,7 +1712,25 @@ class ShiftRequestForm(ModelForm):
             "requested_date": _trans("Requested Date"),
             "requested_till": _trans("Requested Till"),
         }
-
+ 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Convert employee_id to multi-select (similar to DocumentRequestForm)
+        self.fields["employee_id"] = HorillaMultiSelectField(
+            queryset=Employee.objects.all(),
+            widget=HorillaMultiSelectWidget(
+                filter_route_name="employee-widget-filter",
+                filter_class=EmployeeFilter,
+                filter_instance_contex_name="f",
+                filter_template_path="employee_filters.html",
+                required=True,
+                instance=self.instance,
+            ),
+            label=_trans("Employee"),
+        )
+        self.fields["employee_id"].widget.attrs["multiple"] = True
+        reload_queryset(self.fields)
+ 
     def as_p(self):
         """
         Render the form fields as HTML table rows with Bootstrap styling.
@@ -1721,18 +1738,27 @@ class ShiftRequestForm(ModelForm):
         context = {"form": self}
         table_html = render_to_string("horilla_form.html", context)
         return table_html
-
-    def save(self, commit: bool = ...):
-        if not self.instance.approved:
-            employee = self.instance.employee_id
-            if hasattr(employee, "employee_work_info"):
-                self.instance.previous_shift_id = employee.employee_work_info.shift_id
-                if self.instance.is_permanent_shift:
-                    self.instance.requested_till = None
-        return super().save(commit)
-
-    # here set default filter for all the employees those have work information filled.
-
+ 
+    def clean(self):
+        cleaned_data = super().clean()
+ 
+        if isinstance(self.fields["employee_id"], HorillaMultiSelectField):
+            self.errors.pop("employee_id", None)
+            selected_ids = self.data.getlist("employee_id")
+ 
+            if not selected_ids:
+                raise forms.ValidationError({"employee_id": "This field is required"})
+ 
+            # Get selected employee objects
+            employees = self.fields["employee_id"].queryset.filter(id__in=selected_ids)
+ 
+            # Store them separately (not in employee_id, since that’s a ForeignKey)
+            cleaned_data["selected_employees"] = employees
+ 
+        return cleaned_data
+ 
+ 
+ 
 
 class ShiftAllocationForm(ModelForm):
     """
@@ -1794,17 +1820,16 @@ class ShiftAllocationForm(ModelForm):
                     )
         return super().save(commit)
 
-
 class WorkTypeRequestForm(ModelForm):
     """
     WorkTypeRequest model's form
     """
-
+ 
     class Meta:
         """
         Meta class for additional options
         """
-
+ 
         model = WorkTypeRequest
         fields = "__all__"
         exclude = (
@@ -1819,7 +1844,26 @@ class WorkTypeRequestForm(ModelForm):
             "requested_till": _trans("Requested Till"),
             "description": _trans("Description"),
         }
-
+       
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Convert employee_id to multi-select (similar to DocumentRequestForm)
+        self.fields["employee_id"] = HorillaMultiSelectField(
+            queryset=Employee.objects.all(),
+            widget=HorillaMultiSelectWidget(
+                filter_route_name="employee-widget-filter",
+                filter_class=EmployeeFilter,
+                filter_instance_contex_name="f",
+                filter_template_path="employee_filters.html",
+                required=True,
+                instance=self.instance,
+            ),
+            label=_trans("Employee"),
+        )
+        self.fields["employee_id"].widget.attrs["multiple"] = True
+        reload_queryset(self.fields)
+ 
+ 
     def as_p(self):
         """
         Render the form fields as HTML table rows with Bootstrap styling.
@@ -1827,19 +1871,26 @@ class WorkTypeRequestForm(ModelForm):
         context = {"form": self}
         table_html = render_to_string("horilla_form.html", context)
         return table_html
+ 
+    def clean(self):
+        cleaned_data = super().clean()
+ 
+        if isinstance(self.fields["employee_id"], HorillaMultiSelectField):
+            self.errors.pop("employee_id", None)
+            selected_ids = self.data.getlist("employee_id")
+ 
+            if not selected_ids:
+                raise forms.ValidationError({"employee_id": "This field is required"})
+ 
+            # Get selected employee objects
+            employees = self.fields["employee_id"].queryset.filter(id__in=selected_ids)
+ 
+            # Store them separately (not in employee_id, since that’s a ForeignKey)
+            cleaned_data["selected_employees"] = employees
+ 
+        return cleaned_data
 
-    def save(self, commit: bool = ...):
-        if not self.instance.approved:
-            employee = self.instance.employee_id
-            if hasattr(employee, "employee_work_info"):
-                self.instance.previous_work_type_id = (
-                    employee.employee_work_info.work_type_id
-                )
-                if self.instance.is_permanent_work_type:
-                    self.instance.requested_till = None
-        return super().save(commit)
-
-
+        
 class ChangePasswordForm(forms.Form):
     old_password = forms.CharField(
         label=_("Old password"),
@@ -2796,3 +2847,31 @@ class PenaltyAccountForm(ModelForm):
                 id__in=available_leaves.values_list("leave_type_id", flat=True)
             )
             self.fields["leave_type_id"].queryset = assigned_leave_types
+
+# 31-10-2025
+class CompanyForm(forms.ModelForm):
+    class Meta:
+        model = Company
+        fields = (
+            "company",
+            "parent_company",  # Include the new field
+            "hq",
+            "address",
+            "country",
+            "state",
+            "city",
+            "zip",
+            "icon",
+            "date_format",
+            "time_format",
+        )
+    
+    # Optional: Customize the queryset for parent_company to exclude the current instance
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            # Exclude the current company from being its own parent
+            self.fields['parent_company'].queryset = Company.objects.exclude(pk=self.instance.pk)
+        
+        # Optional: You might want to filter the choices to only show top-level companies or a specific set
+        # self.fields['parent_company'].queryset = Company.objects.filter(parent_company__isnull=True)

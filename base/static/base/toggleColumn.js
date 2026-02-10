@@ -30,6 +30,9 @@ function toggleColumns(tableId, fieldContainer) {
         const element = trs[tr];
         trsString = trsString + element
     }
+    // Remove any existing button header to prevent duplicates
+    $(`#${fieldContainer}`).parent().find('.oh-dropdown_btn-header').remove();
+    
     let selectButtons = $(`
     <div class="oh-dropdown_btn-header">
     <button onclick="$(this).parent().parent().find('[type=checkbox]').prop('checked',true).change()" class="oh-btn oh-btn--success-outline">Select All Columns</button>
@@ -38,15 +41,41 @@ function toggleColumns(tableId, fieldContainer) {
     `)
     $(`#${fieldContainer}`).parent().prepend(selectButtons)
     $(`#${fieldContainer}`).html(trsString);
-    if (visibleCells) {
+    if (visibleCells && visibleCells != "[]") {
         storedIds = JSON.parse(visibleCells)
-        $(`#${fieldContainer} input[type=checkbox]`).prop("checked", false)
-        for (let id = 0; id < storedIds.length; id++) {
-            const element = storedIds[id];
-            $(`#${fieldContainer} input[type=checkbox][value=${element}]`).prop("checked", true)
-            hideCells($(`#${fieldContainer} input[type=checkbox][value=${element}]`), tableTitle, fieldContainer)
+        // Only uncheck if we have stored IDs and they're not all columns
+        if (storedIds.length > 0) {
+            $(`#${fieldContainer} input[type=checkbox]`).prop("checked", false)
+            for (let id = 0; id < storedIds.length; id++) {
+                const element = storedIds[id];
+                $(`#${fieldContainer} input[type=checkbox][value=${element}]`).prop("checked", true)
+                hideCells($(`#${fieldContainer} input[type=checkbox][value=${element}]`), tableTitle, fieldContainer)
+            }
+        } else {
+            // If storedIds is empty, check all by default
+            $(`#${fieldContainer} input[type=checkbox]`).prop("checked", true).each(function() {
+                hideCells($(this), tableTitle, fieldContainer)
+            })
         }
         $(`[data-table-name][data-table-name=${tableTitle}]`).show();
+    } else {
+        // If no localStorage or empty, check all columns by default
+        $(`#${fieldContainer} input[type=checkbox]`).prop("checked", true);
+        // Save all column IDs to localStorage so they remain checked on next load
+        var allCellIndexes = [];
+        $(`[data-table-name=${tableTitle}] [data-cell-index]`).each(function() {
+            var cellIndex = $(this).attr("data-cell-index");
+            if (cellIndex !== undefined && allCellIndexes.indexOf(cellIndex) === -1) {
+                allCellIndexes.push(cellIndex);
+            }
+        });
+        if (allCellIndexes.length > 0) {
+            localStorage.setItem(tableTitle, JSON.stringify(allCellIndexes));
+        }
+        // Trigger hideCells for each checkbox to ensure visibility is correct
+        $(`#${fieldContainer} input[type=checkbox]`).each(function() {
+            hideCells($(this), tableTitle, fieldContainer)
+        })
     }
 }
 function hideCells(jqElement, tableTitle, fieldContainer) {

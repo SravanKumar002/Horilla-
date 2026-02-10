@@ -20,6 +20,7 @@ INSTALLED_APPS.append("helpdesk")
 INSTALLED_APPS.append("offboarding")
 INSTALLED_APPS.append("horilla_backup")
 INSTALLED_APPS.append("project")
+INSTALLED_APPS.append("report")
 if settings.env("AWS_ACCESS_KEY_ID", default=None) and "storages" not in INSTALLED_APPS:
     INSTALLED_APPS.append("storages")
 
@@ -45,7 +46,8 @@ if SETTINGS_EMAIL_BACKEND:
 
 
 SIDEBARS = [
-    "recruitment",
+    # "recruitment",
+    "company",
     "onboarding",
     "employee",
     "attendance",
@@ -56,6 +58,7 @@ SIDEBARS = [
     "asset",
     "helpdesk",
     "project",
+    "report",
 ]
 
 WHITE_LABELLING = False
