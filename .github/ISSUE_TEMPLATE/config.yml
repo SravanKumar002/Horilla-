@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Horilla Community Support
-    url: https://github.com/horilla-opensource/horilla/discussions
+    url: https://github.com/horilla-o    web: python manage.py migrate && python manage.py collectstatic --noinput && gunicorn horilla.wsgi:application --bind 0.0.0.0:$PORT    web: python manage.py migrate && python manage.py collectstatic --noinput && gunicorn horilla.wsgi:application --bind 0.0.0.0:$PORTpensource/horilla/discussions
     about: Ask questions or discuss features here
   - name: Documentation
     url: https://horilla-opensource.github.io/horilla-docs/
